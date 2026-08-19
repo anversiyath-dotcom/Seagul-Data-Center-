@@ -1,0 +1,6 @@
+{
+  "name": "Travel Ticket & Visa Followup System",
+  "description": "Complete tracking and workflow system for Air Ticket Reissues/Refunds and Visa Application follow-ups matching agency operational interfaces.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

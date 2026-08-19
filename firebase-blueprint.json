@@ -1,0 +1,37 @@
+{
+  "entities": {
+    "tickets": {
+      "title": "Tickets",
+      "description": "Travel ticket records",
+      "properties": {
+        "id": { "type": "string" },
+        "passengerName": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    "visas": {
+      "title": "Visas",
+      "description": "Visa application records",
+      "properties": {
+        "id": { "type": "string" },
+        "passengerName": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    "comments": {
+      "title": "Comments",
+      "description": "Activity comments",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" }
+      }
+    },
+    "companyProfile": {
+      "title": "Company Profile",
+      "description": "Agency settings",
+      "properties": {
+        "companyName": { "type": "string" }
+      }
+    }
+  }
+}
