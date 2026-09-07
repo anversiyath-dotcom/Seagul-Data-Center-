@@ -3,7 +3,8 @@ import { TicketFollowup, CompanyProfile } from '../types';
 import { 
   X, User, Truck, Calendar, Ticket, DollarSign, Clock, 
   CheckCircle2, Info, Plane, Eye, EyeOff, Edit3, Check, Printer, MapPin, Luggage, Save, Trash2,
-  Paperclip, FileText, ExternalLink, Users, FileCheck, PlaneTakeoff, PlaneLanding, Repeat, ArrowRight
+  Paperclip, FileText, ExternalLink, Users, FileCheck, PlaneTakeoff, PlaneLanding, Repeat, ArrowRight,
+  TrendingUp, TrendingDown, Calculator
 } from 'lucide-react';
 import { formatLKR } from '../utils/helpers';
 import { TicketLetterheadPrint } from './TicketLetterheadPrint';
@@ -414,13 +415,13 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
               </div>
             </div>
 
-            {/* Card 5: Total Fare / Refundable Card */}
+            {/* Card 5: Total Fare & Financial / Profit Card */}
             <div className="bg-[#0A1128] text-white p-3.5 rounded-xl shadow-lg border border-slate-800 flex flex-col justify-between col-span-1 sm:col-span-2 lg:col-span-1 min-h-[110px]">
               <div>
                 <div className="flex items-center justify-between text-[10px] text-slate-300 font-bold uppercase tracking-wider">
                   <div className="flex items-center space-x-1">
                     <DollarSign className="w-3 h-3 text-blue-400" />
-                    <span>TOTAL FARE / QUOTE</span>
+                    <span>FARE & PROFIT</span>
                   </div>
                   <button
                     onClick={() => setHideRefundable(!hideRefundable)}
@@ -430,19 +431,42 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                   </button>
                 </div>
                 <div className="text-xl font-black tracking-tight text-white mt-1">
-                  {hideRefundable ? '••••••••' : (ticket.quote || formatLKR(ticket.totalRefundable))}
+                  {hideRefundable ? '••••••••' : (
+                    ticket.sellingPrice !== undefined 
+                      ? `${ticket.currency || 'LKR'} ${ticket.sellingPrice.toLocaleString()}` 
+                      : (ticket.quote || formatLKR(ticket.totalRefundable))
+                  )}
                 </div>
               </div>
 
               <div className="border-t border-slate-800/80 pt-1.5 mt-2 text-[10px] space-y-0.5">
-                <div className="flex justify-between text-slate-300">
-                  <span>REFUND / FARE</span>
-                  <span className="font-mono">{formatLKR(ticket.refundAmount)}</span>
-                </div>
-                <div className="flex justify-between text-slate-400">
-                  <span>SERVICE FEE</span>
-                  <span className="font-mono">{formatLKR(ticket.serviceFee)}</span>
-                </div>
+                {ticket.costPrice !== undefined && ticket.costPrice > 0 ? (
+                  <>
+                    <div className="flex justify-between text-slate-300">
+                      <span>COST PRICE</span>
+                      <span className="font-mono">{ticket.currency || 'LKR'} {ticket.costPrice.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between font-bold">
+                      <span className="text-emerald-400">NET PROFIT</span>
+                      <span className={`font-mono ${((ticket.profit ?? 0) >= 0) ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {ticket.profit !== undefined 
+                          ? `${ticket.profit >= 0 ? '+' : ''}${ticket.currency || 'LKR'} ${ticket.profit.toLocaleString()}`
+                          : formatLKR((ticket.sellingPrice || 0) - ticket.costPrice)}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex justify-between text-slate-300">
+                      <span>REFUND / FARE</span>
+                      <span className="font-mono">{formatLKR(ticket.refundAmount)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>SERVICE FEE</span>
+                      <span className="font-mono">{formatLKR(ticket.serviceFee)}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -802,7 +826,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                   <div className="flex items-center space-x-2 text-slate-500">
                     <User className="w-4 h-4 text-slate-400" />
                     <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                      PASSENGERS & TICKET NOS
+                      {ticket.isGroupBooking ? 'GROUP PASSENGERS & ROSTER' : 'PASSENGERS & TICKET NOS'}
                     </h3>
                   </div>
                   <span className="text-[11px] font-extrabold text-blue-700 bg-blue-50 px-3 py-1 rounded border border-blue-200 uppercase">
@@ -810,8 +834,32 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                   </span>
                 </div>
 
+                {/* Group Booking Badge Banner */}
+                {ticket.isGroupBooking && (
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="p-2 bg-indigo-600 text-white rounded-lg">
+                        <Users className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs font-black text-indigo-950 uppercase">
+                            GROUP: {ticket.groupName || 'Tour Group Booking'}
+                          </span>
+                          <span className="bg-indigo-200 text-indigo-900 font-extrabold text-[10px] px-2 py-0.5 rounded-full font-mono">
+                            {ticket.groupSize || ticket.travelers.length} Pax
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-indigo-700 font-medium">
+                          Shared Master PNR: <span className="font-mono font-bold">{ticket.pnr}</span> • Pricing: {ticket.pricingMode === 'per_pax' ? 'Per Passenger' : 'Total Group'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* TRAVELERS LIST */}
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                   {ticket.travelers.map((trv, idx) => (
                     <div
                       key={trv.id || idx}
@@ -826,13 +874,94 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                             {trv.name}
                           </p>
                           <p className="text-[11px] font-mono text-slate-500 mt-0.5">
-                            Ticket #: {trv.ticketNo}
+                            Ticket #: {trv.ticketNo || 'Pending'} {trv.passportNo ? `• Passport: ${trv.passportNo}` : ''}
                           </p>
                         </div>
                       </div>
+                      {trv.costPrice !== undefined && trv.sellingPrice !== undefined && (
+                        <div className="text-right text-[10px] font-mono">
+                          <span className="text-slate-400 block">Sell: {ticket.currency || 'LKR'} {trv.sellingPrice.toLocaleString()}</span>
+                          <span className="text-emerald-600 font-bold">Profit: +{ticket.currency || 'LKR'} {((trv.profit ?? (trv.sellingPrice - (trv.costPrice || 0)))).toLocaleString()}</span>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
+
+                {/* FINANCIALS & PROFIT BREAKDOWN CARD */}
+                {(ticket.costPrice !== undefined || ticket.sellingPrice !== undefined || ticket.profit !== undefined) && (
+                  <div className="bg-slate-900 text-white p-4 rounded-xl border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <div className="flex items-center space-x-2">
+                        <Calculator className="w-4 h-4 text-emerald-400" />
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                          FINANCIALS & PROFIT CALCULATION
+                        </span>
+                      </div>
+                      {ticket.paymentStatus && (
+                        <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${
+                          ticket.paymentStatus === 'Fully Paid'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            : ticket.paymentStatus === 'Partial Paid'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : 'bg-red-500/20 text-red-300 border border-red-500/40'
+                        }`}>
+                          {ticket.paymentStatus}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2.5">
+                      {/* Selling Price */}
+                      <div className="bg-slate-800/80 p-2.5 rounded-lg border border-slate-700/60">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block">Selling Price</span>
+                        <span className="text-sm font-black text-white font-mono mt-0.5 block">
+                          {ticket.currency || 'LKR'} {(ticket.sellingPrice ?? (ticket.totalRefundable || 0)).toLocaleString()}
+                        </span>
+                        {ticket.isGroupBooking && ticket.sellingPerPax && (
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {ticket.currency || 'LKR'} {ticket.sellingPerPax.toLocaleString()} / pax
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Cost Price */}
+                      <div className="bg-slate-800/80 p-2.5 rounded-lg border border-slate-700/60">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block">Supplier Cost</span>
+                        <span className="text-sm font-black text-slate-300 font-mono mt-0.5 block">
+                          {ticket.currency || 'LKR'} {(ticket.costPrice ?? 0).toLocaleString()}
+                        </span>
+                        {ticket.isGroupBooking && ticket.costPerPax && (
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {ticket.currency || 'LKR'} {ticket.costPerPax.toLocaleString()} / pax
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Net Profit */}
+                      <div className={`p-2.5 rounded-lg border ${
+                        (ticket.profit ?? 0) >= 0 
+                          ? 'bg-emerald-950/60 border-emerald-700/60 text-emerald-300' 
+                          : 'bg-red-950/60 border-red-700/60 text-red-300'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-bold uppercase block">Net Profit</span>
+                          {(ticket.profit ?? 0) >= 0 ? <TrendingUp className="w-3 h-3 text-emerald-400" /> : <TrendingDown className="w-3 h-3 text-red-400" />}
+                        </div>
+                        <span className="text-sm font-black font-mono mt-0.5 block">
+                          {(ticket.profit ?? 0) >= 0 ? '+' : ''}{ticket.currency || 'LKR'} {(ticket.profit ?? ((ticket.sellingPrice ?? 0) - (ticket.costPrice ?? 0))).toLocaleString()}
+                        </span>
+                        {ticket.isGroupBooking && (
+                          <span className="text-[10px] font-mono opacity-90">
+                            {ticket.profitPerPax !== undefined 
+                              ? `+${ticket.currency || 'LKR'} ${ticket.profitPerPax.toLocaleString()} / pax`
+                              : `${ticket.groupSize || ticket.travelers.length} Pax total`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* ATTACHED AIR TICKET DOCUMENT */}
                 {ticket.ticketAttachment && (

@@ -114,6 +114,71 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
   const passportInputRef = useRef<HTMLInputElement | null>(null);
   const visaInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Sync state whenever editingVisa changes or modal opens
+  useEffect(() => {
+    if (isOpen) {
+      if (editingVisa) {
+        setLastName(editingVisa.lastName || '');
+        setFirstName(editingVisa.firstName || '');
+        setPassportNo(editingVisa.passportNo || '');
+        setPassportExpiry(editingVisa.passportExpiry || '');
+        setNationality(editingVisa.nationality || 'SRI LANKAN');
+        setDestinationCountry(editingVisa.destinationCountry || 'United Arab Emirates (UAE)');
+        setUnifiedNumber(editingVisa.unifiedNumber || '');
+        setDob(editingVisa.dob || '');
+        setVisaCategory(editingVisa.visaCategory || '30 Days Single Entry');
+        setEntryDate(editingVisa.entryDate || '');
+        setExpiryDate(editingVisa.expiryDate || '');
+        setStatus(editingVisa.status || 'In Process');
+        setCustomer(editingVisa.customer || 'Seagull Global');
+        setCustomerType(editingVisa.customerType || 'Agency');
+        setRemarks(editingVisa.remarks || '');
+        setIcpFileNo(editingVisa.icpFileNo || '');
+        setSupplier(editingVisa.supplier || 'Musafir B2B');
+        setPurchasingPrice(editingVisa.purchasingPrice !== undefined ? String(editingVisa.purchasingPrice) : '');
+        setSellingPrice(editingVisa.sellingPrice !== undefined ? String(editingVisa.sellingPrice) : '');
+        setPaymentStatus(editingVisa.paymentStatus || 'Pending');
+        setCurrency(editingVisa.currency || 'AED');
+        setPassportAttachment(editingVisa.passportAttachment);
+        setPassportFileName(editingVisa.passportFileName);
+        setVisaAttachment(editingVisa.visaAttachment);
+        setVisaFileName(editingVisa.visaFileName);
+        setOverrideDuplicate(false);
+        setShowDuplicateError(false);
+        setScanStatus(null);
+      } else {
+        setLastName('');
+        setFirstName('');
+        setPassportNo('');
+        setPassportExpiry('');
+        setNationality('SRI LANKAN');
+        setDestinationCountry('United Arab Emirates (UAE)');
+        setUnifiedNumber('');
+        setDob('');
+        setVisaCategory('30 Days Single Entry');
+        setEntryDate('');
+        setExpiryDate('');
+        setStatus('In Process');
+        setCustomer('Seagull Global');
+        setCustomerType('Agency');
+        setRemarks('');
+        setIcpFileNo('');
+        setSupplier('Musafir B2B');
+        setPurchasingPrice('');
+        setSellingPrice('');
+        setPaymentStatus('Pending');
+        setCurrency('AED');
+        setPassportAttachment(undefined);
+        setPassportFileName(undefined);
+        setVisaAttachment(undefined);
+        setVisaFileName(undefined);
+        setOverrideDuplicate(false);
+        setShowDuplicateError(false);
+        setScanStatus(null);
+      }
+    }
+  }, [editingVisa, isOpen]);
+
   const handleCategoryChange = (newCategory: string) => {
     setVisaCategory(newCategory);
     if (entryDate && entryDate !== 'N/A') {

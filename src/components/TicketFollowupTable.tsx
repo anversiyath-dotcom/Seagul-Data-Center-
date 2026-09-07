@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { TicketFollowup, TicketStatus } from '../types';
 import { 
   MessageSquare, ExternalLink, Filter, Search, Plus, Download, Edit2, Edit3, 
-  Trash2, Building2, Layers, Plane, Calendar, MapPin, Tag, ArrowRight, User, Paperclip, Users
+  Trash2, Building2, Layers, Plane, Calendar, MapPin, Tag, ArrowRight, User, Paperclip, Users,
+  DollarSign, TrendingUp, TrendingDown, Calculator, CalendarRange, X
 } from 'lucide-react';
 import { getTicketStatusBadgeClass } from '../utils/helpers';
+import { isDateInRange, getDateRangePreset, DatePreset } from '../utils/dateUtils';
 
 interface TicketFollowupTableProps {
   tickets: TicketFollowup[];
@@ -37,6 +39,25 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
   const [selectedAirlineFilter, setSelectedAirlineFilter] = useState<string>('ALL');
   const [entityTypeFilter, setEntityTypeFilter] = useState<'ALL' | 'Agency' | 'Customer'>('ALL');
   const [isGroupedByAgency, setIsGroupedByAgency] = useState<boolean>(false);
+
+  // Date Filtering State
+  const [datePreset, setDatePreset] = useState<DatePreset>('all');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [dateField, setDateField] = useState<'flyDate' | 'requestDate'>('flyDate');
+
+  const handleDatePresetChange = (preset: DatePreset) => {
+    setDatePreset(preset);
+    const range = getDateRangePreset(preset);
+    setStartDate(range.start);
+    setEndDate(range.end);
+  };
+
+  const handleClearDateFilter = () => {
+    setDatePreset('all');
+    setStartDate('');
+    setEndDate('');
+  };
 
   // Helper to calculate days remaining until departure
   const getDaysLeftForFlyDate = React.useCallback((dateStr?: string): number | null => {
@@ -137,7 +158,15 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
       entityTypeFilter === 'ALL' ||
       (entityTypeFilter === 'Customer' ? t.customerType === 'Customer' : (t.customerType || 'Agency') === 'Agency');
 
-    return matchesSearch && matchesStatus && matchesAgency && matchesAirline && matchesEntityType;
+    const matchesDate = (() => {
+      if (!startDate && !endDate) return true;
+      const targetDateStr = dateField === 'flyDate'
+        ? (t.flyDate || (t.itinerary && t.itinerary[0]?.dateTime?.split(' ')[0]))
+        : (t.requestDate || t.createdAt?.split('T')[0]);
+      return isDateInRange(targetDateStr, startDate, endDate);
+    })();
+
+    return matchesSearch && matchesStatus && matchesAgency && matchesAirline && matchesEntityType && matchesDate;
   });
 
   // Grouping logic when isGroupedByAgency is true
@@ -153,26 +182,71 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
     return groups;
   }, [filteredTickets]);
 
+  const financialTotals = React.useMemo(() => {
+    let totalSelling = 0;
+    let totalCost = 0;
+    let totalProfit = 0;
+    let pricedCount = 0;
+    let groupCount = 0;
+    let groupPaxCount = 0;
+
+    filteredTickets.forEach((t) => {
+      const selling = t.sellingPrice !== undefined ? t.sellingPrice : (t.totalRefundable || 0);
+      const cost = t.costPrice !== undefined ? t.costPrice : 0;
+      const profit = t.profit !== undefined ? t.profit : (selling - cost);
+
+      totalSelling += selling;
+      totalCost += cost;
+      if (t.costPrice !== undefined || t.sellingPrice !== undefined) {
+        totalProfit += profit;
+        pricedCount++;
+      }
+      if (t.isGroupBooking) {
+        groupCount++;
+        groupPaxCount += (t.groupSize || t.travelers?.length || 1);
+      }
+    });
+
+    const margin = totalSelling > 0 ? ((totalProfit / totalSelling) * 100).toFixed(1) : '0.0';
+    return { totalSelling, totalCost, totalProfit, margin, pricedCount, groupCount, groupPaxCount };
+  }, [filteredTickets]);
+
   const exportCSV = () => {
     const headers = [
       'Tickets', 'PNR', 'Airline', 'Flight No', 'Fly Date', 'Return Date', 
-      'Departure Location', 'Arrival Location', 'Category', 'Status', 'Customer', 'Quote', 'Comment'
+      'Departure Location', 'Arrival Location', 'Category', 'Status', 'Customer',
+      'Is Group', 'Group Name', 'Group Pax', 'Cost Price', 'Selling Price', 'Net Profit', 'Profit Per Pax', 'Payment Status', 'Comment'
     ];
-    const rows = filteredTickets.map((t) => [
-      `"${t.tickets.join(', ')}"`,
-      `"${t.pnr}"`,
-      `"${t.airline || ''}"`,
-      `"${t.flightNo || ''}"`,
-      `"${t.flyDate || ''}"`,
-      `"${t.returnDate || ''}"`,
-      `"${t.departureLocation || ''}"`,
-      `"${t.arrivalLocation || ''}"`,
-      `"${t.reissueCategory || 'Standard Reissue'}"`,
-      `"${t.status}"`,
-      `"${t.customer}"`,
-      `"${t.quote || ''}"`,
-      `"${t.comment.replace(/"/g, '""')}"`
-    ]);
+    const rows = filteredTickets.map((t) => {
+      const selling = t.sellingPrice !== undefined ? t.sellingPrice : (t.totalRefundable || 0);
+      const cost = t.costPrice !== undefined ? t.costPrice : '';
+      const profit = t.profit !== undefined ? t.profit : (t.costPrice !== undefined ? selling - t.costPrice : '');
+      const paxCount = t.groupSize || t.travelers?.length || 1;
+      const profitPerPax = t.profitPerPax !== undefined ? t.profitPerPax : (typeof profit === 'number' && paxCount > 0 ? (profit / paxCount).toFixed(0) : '');
+
+      return [
+        `"${t.tickets.join(', ')}"`,
+        `"${t.pnr}"`,
+        `"${t.airline || ''}"`,
+        `"${t.flightNo || ''}"`,
+        `"${t.flyDate || ''}"`,
+        `"${t.returnDate || ''}"`,
+        `"${t.departureLocation || ''}"`,
+        `"${t.arrivalLocation || ''}"`,
+        `"${t.reissueCategory || 'Standard Reissue'}"`,
+        `"${t.status}"`,
+        `"${t.customer}"`,
+        `"${t.isGroupBooking ? 'YES' : 'NO'}"`,
+        `"${t.groupName || ''}"`,
+        `"${t.isGroupBooking ? paxCount : 1}"`,
+        `"${cost}"`,
+        `"${selling}"`,
+        `"${profit}"`,
+        `"${profitPerPax}"`,
+        `"${t.paymentStatus || 'Unpaid'}"`,
+        `"${t.comment.replace(/"/g, '""')}"`
+      ];
+    });
 
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -187,9 +261,20 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
   const renderTicketRow = (item: TicketFollowup) => {
     const commentCount = commentsCountMap[item.id] || 0;
     const primaryTraveler = item.travelers && item.travelers.length > 0 ? item.travelers[0].name : '';
+    const otherTravelersCount = item.travelers && item.travelers.length > 1 ? item.travelers.length - 1 : 0;
     const routeDisplay = item.departureLocation && item.arrivalLocation 
       ? `${item.departureLocation} → ${item.arrivalLocation}` 
       : (item.itinerary && item.itinerary[0]?.route ? item.itinerary[0].route : 'N/A');
+
+    const cur = item.currency || 'LKR';
+    const selling = item.sellingPrice !== undefined ? item.sellingPrice : (item.totalRefundable || 0);
+    const cost = item.costPrice !== undefined ? item.costPrice : undefined;
+    const hasFinancials = cost !== undefined || item.sellingPrice !== undefined || item.totalRefundable !== undefined;
+    const netProfit = item.profit !== undefined ? item.profit : (cost !== undefined ? selling - cost : undefined);
+    const paxCount = item.groupSize || (item.travelers && item.travelers.length > 0 ? item.travelers.length : 1);
+    const profitPax = item.profitPerPax !== undefined 
+      ? item.profitPerPax 
+      : (netProfit !== undefined && paxCount > 0 ? Math.round(netProfit / paxCount) : undefined);
 
     return (
       <tr
@@ -198,17 +283,43 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
       >
         {/* Ticket Numbers & Passenger */}
         <td className="py-3 px-4 align-top">
+          {item.isGroupBooking && (
+            <div className="mb-1.5 inline-flex items-center space-x-1 bg-indigo-50 border border-indigo-200 text-indigo-800 px-2 py-0.5 rounded-md text-[10px] font-black">
+              <Users className="w-3 h-3 text-indigo-600 shrink-0" />
+              <span>GROUP: {item.groupName || 'Tour Group'}</span>
+              <span className="bg-indigo-600 text-white text-[9px] px-1.5 py-0.2 rounded-full font-mono ml-1">
+                {paxCount} Pax
+              </span>
+            </div>
+          )}
+
           <div className="font-mono text-slate-800 text-[11px] leading-relaxed break-words font-semibold max-w-[240px]">
             {item.tickets.join(' ')}
           </div>
-          <div className="text-[10px] text-slate-500 mt-1 font-sans flex items-center gap-1">
+
+          <div className="text-[10px] text-slate-700 mt-1 font-sans flex items-center gap-1">
             <User className="w-3 h-3 text-slate-400 shrink-0" />
-            <span className="font-semibold text-slate-700 truncate max-w-[200px]" title={primaryTraveler || item.customer}>
+            <span className="font-bold truncate max-w-[190px]" title={primaryTraveler || item.customer}>
               {primaryTraveler || item.customer}
             </span>
+            {otherTravelersCount > 0 && (
+              <span 
+                className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-1.5 py-0.2 rounded text-[9px] cursor-help transition-colors"
+                title={`All Passengers:\n${item.travelers?.map((t, idx) => `${idx + 1}. ${t.name} (${t.ticketNo || 'No Ticket'})`).join('\n')}`}
+              >
+                +{otherTravelersCount} more
+              </span>
+            )}
           </div>
-          <div className="text-[9px] text-slate-400 mt-0.5 font-mono">
-            Account: <span className="text-slate-600 font-semibold">{item.customer}</span>
+
+          <div className="text-[9px] text-slate-400 mt-0.5 font-mono flex items-center gap-1">
+            <span>Account:</span>
+            <span className="text-slate-700 font-semibold">{item.customer}</span>
+            <span className={`text-[8px] px-1 rounded font-bold uppercase ${
+              item.customerType === 'Customer' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+            }`}>
+              {item.customerType === 'Customer' ? 'B2C' : 'Agency'}
+            </span>
           </div>
         </td>
 
@@ -330,9 +441,52 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
           </p>
         </td>
 
-        {/* Quote / Total Amount */}
-        <td className="py-3 px-3 align-top font-bold text-slate-900 text-xs font-mono">
-          {item.quote || (item.totalRefundable ? `LKR ${item.totalRefundable.toLocaleString()}` : '-')}
+        {/* Financials: Selling, Cost & Profit */}
+        <td className="py-3 px-3 align-top space-y-1">
+          <div>
+            <span className="text-[9px] text-slate-400 font-bold uppercase block tracking-tight">Selling / Quote</span>
+            <span className="font-extrabold text-slate-900 text-xs font-mono">
+              {cur} {selling.toLocaleString()}
+            </span>
+          </div>
+
+          {cost !== undefined && cost > 0 && (
+            <div className="text-[10px] text-slate-500 font-mono">
+              <span className="text-[9px] text-slate-400 block uppercase font-bold">Cost:</span>
+              <span className="text-slate-700 font-bold">{cur} {cost.toLocaleString()}</span>
+            </div>
+          )}
+
+          {netProfit !== undefined && (
+            <div className="pt-0.5">
+              <span className={`text-[10px] font-black px-1.5 py-0.5 rounded font-mono inline-flex items-center gap-1 ${
+                netProfit >= 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-red-100 text-red-800 border border-red-300'
+              }`}>
+                {netProfit >= 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                <span>{netProfit >= 0 ? `+${cur} ${netProfit.toLocaleString()}` : `${cur} ${netProfit.toLocaleString()}`}</span>
+              </span>
+
+              {item.isGroupBooking && profitPax !== undefined && paxCount > 1 && (
+                <div className="text-[9px] text-slate-500 font-mono mt-0.5">
+                  ({cur} {profitPax.toLocaleString()} / pax)
+                </div>
+              )}
+            </div>
+          )}
+
+          {item.paymentStatus && (
+            <div className="pt-0.5">
+              <span className={`text-[8px] font-extrabold px-1.5 py-0.2 rounded uppercase ${
+                item.paymentStatus === 'Fully Paid' 
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                  : item.paymentStatus === 'Partial Paid'
+                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                  : 'bg-red-50 text-red-700 border border-red-200'
+              }`}>
+                {item.paymentStatus}
+              </span>
+            </div>
+          )}
         </td>
 
         {/* Actions Column */}
@@ -503,6 +657,98 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
         </div>
       </div>
 
+      {/* Date Filter & Range Selector Bar */}
+      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center space-x-1.5 text-slate-700 font-bold text-xs">
+            <CalendarRange className="w-4 h-4 text-blue-600" />
+            <span>Date Filter:</span>
+          </div>
+
+          {/* Basis (Fly Date vs Request Date) */}
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-[11px] font-bold">
+            <button
+              type="button"
+              onClick={() => setDateField('flyDate')}
+              className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+                dateField === 'flyDate' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Fly Date
+            </button>
+            <button
+              type="button"
+              onClick={() => setDateField('requestDate')}
+              className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+                dateField === 'requestDate' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Request Date
+            </button>
+          </div>
+
+          {/* Quick Presets */}
+          <div className="flex items-center space-x-1">
+            {(['all', 'today', 'this_week', 'this_month', 'last_month'] as DatePreset[]).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => handleDatePresetChange(p)}
+                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                  datePreset === p && !startDate && p === 'all'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : datePreset === p && p !== 'all'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {p === 'all' ? 'All Dates' : p === 'today' ? 'Today' : p === 'this_week' ? 'This Week' : p === 'this_month' ? 'This Month' : 'Last Month'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Custom Date Pickers */}
+        <div className="flex items-center space-x-2 text-xs">
+          <div className="flex items-center space-x-1">
+            <span className="text-slate-400 text-[10px] uppercase font-bold">From</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setDatePreset('custom');
+              }}
+              className="border border-slate-200 rounded-lg px-2 py-1 text-xs font-mono text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex items-center space-x-1">
+            <span className="text-slate-400 text-[10px] uppercase font-bold">To</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setDatePreset('custom');
+              }}
+              className="border border-slate-200 rounded-lg px-2 py-1 text-xs font-mono text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+
+          {(startDate || endDate || datePreset !== 'all') && (
+            <button
+              type="button"
+              onClick={handleClearDateFilter}
+              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+              title="Reset date filter"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Selected Filters Info Banner */}
       {(selectedAgencyFilter !== 'ALL' || selectedAirlineFilter !== 'ALL') && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center justify-between text-blue-900">
@@ -529,6 +775,80 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
         </div>
       )}
       
+      {/* Air Ticket Financial & Group Booking Performance Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {/* Total Selling / Revenue */}
+        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+          <div>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Air Revenue</span>
+            <div className="text-base font-black text-slate-900 font-mono mt-0.5">
+              LKR {financialTotals.totalSelling.toLocaleString()}
+            </div>
+            <span className="text-[10px] text-slate-500">From {filteredTickets.length} tickets</span>
+          </div>
+          <div className="p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0">
+            <DollarSign className="w-4 h-4" />
+          </div>
+        </div>
+
+        {/* Total Supplier Cost */}
+        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+          <div>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Supplier / GDS Cost</span>
+            <div className="text-base font-black text-slate-700 font-mono mt-0.5">
+              LKR {financialTotals.totalCost.toLocaleString()}
+            </div>
+            <span className="text-[10px] text-slate-500">Recorded net cost</span>
+          </div>
+          <div className="p-2 bg-slate-100 text-slate-600 rounded-lg shrink-0">
+            <Calculator className="w-4 h-4" />
+          </div>
+        </div>
+
+        {/* Calculated Net Profit & Margin */}
+        <div className={`p-3 rounded-xl border shadow-2xs flex items-center justify-between ${
+          financialTotals.totalProfit >= 0 ? 'bg-emerald-50/70 border-emerald-200' : 'bg-red-50/70 border-red-200'
+        }`}>
+          <div>
+            <div className="flex items-center space-x-1">
+              <span className="text-[10px] text-emerald-800 font-bold uppercase tracking-wider">Net Profit</span>
+              <span className="text-[9px] bg-emerald-600 text-white font-extrabold px-1.5 py-0.2 rounded font-mono">
+                {financialTotals.margin}%
+              </span>
+            </div>
+            <div className={`text-base font-black font-mono mt-0.5 ${
+              financialTotals.totalProfit >= 0 ? 'text-emerald-800' : 'text-red-700'
+            }`}>
+              {financialTotals.totalProfit >= 0 ? `+LKR ${financialTotals.totalProfit.toLocaleString()}` : `LKR ${financialTotals.totalProfit.toLocaleString()}`}
+            </div>
+            <span className="text-[10px] text-emerald-700 font-medium">
+              Margin on priced tickets
+            </span>
+          </div>
+          <div className={`p-2 rounded-lg shrink-0 ${
+            financialTotals.totalProfit >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+          }`}>
+            {financialTotals.totalProfit >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+          </div>
+        </div>
+
+        {/* Group Bookings KPI */}
+        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+          <div>
+            <span className="text-[10px] text-indigo-700 font-bold uppercase tracking-wider block">Group Bookings</span>
+            <div className="text-base font-black text-indigo-900 font-mono mt-0.5">
+              {financialTotals.groupCount} <span className="text-xs font-semibold text-slate-500">Groups</span>
+            </div>
+            <span className="text-[10px] text-indigo-600 font-semibold">
+              {financialTotals.groupPaxCount} total passengers
+            </span>
+          </div>
+          <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg shrink-0">
+            <Users className="w-4 h-4" />
+          </div>
+        </div>
+      </div>
+
       {/* Table Control Bar */}
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
         
@@ -578,12 +898,12 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
             
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
-                <th className="py-3 px-4 w-[22%]">Issued Ticket & Passenger</th>
-                <th className="py-3 px-3 w-[18%]">Airline & Flight</th>
-                <th className="py-3 px-3 w-[15%]">Fly Date / Return</th>
+                <th className="py-3 px-4 w-[21%]">Issued Ticket & Passenger</th>
+                <th className="py-3 px-3 w-[16%]">Airline & Flight</th>
+                <th className="py-3 px-3 w-[14%]">Fly Date / Return</th>
                 <th className="py-3 px-3 w-[12%]">PNR / Category</th>
-                <th className="py-3 px-3 w-[15%]">Current Status</th>
-                <th className="py-3 px-3 w-[8%]">Quote / Fare</th>
+                <th className="py-3 px-3 w-[13%]">Current Status</th>
+                <th className="py-3 px-3 w-[14%]">Financials & Profit</th>
                 <th className="py-3 px-4 text-center w-[10%]">Actions</th>
               </tr>
             </thead>

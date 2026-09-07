@@ -29,6 +29,7 @@ import { AddVisaModal } from './components/AddVisaModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { LoginScreen } from './components/LoginScreen';
 import { CompanySettingsModal } from './components/CompanySettingsModal';
+import { FinancialAccountingView } from './components/FinancialAccountingView';
 
 export default function App() {
   // Auth state - session based login screen
@@ -52,7 +53,7 @@ export default function App() {
   };
 
   // Navigation & View state
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'tickets' | 'visas'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'tickets' | 'visas' | 'accounting'>('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Main Datasets with Safe Storage persistence
@@ -449,6 +450,17 @@ export default function App() {
             onUpdateStatus={handleUpdateVisaStatus}
             onUpdatePaymentStatus={handleUpdateVisaPaymentStatus}
             commentsCountMap={commentsCountMap}
+          />
+        )}
+
+        {activeTab === 'accounting' && (
+          <FinancialAccountingView
+            tickets={tickets}
+            visas={visas}
+            companyProfile={companyProfile}
+            onOpenTicketDetails={(t) => setDetailModalTicket(t)}
+            onOpenVisaDetails={(v) => setDetailModalVisa(v)}
+            onNavigateTab={(tab) => setActiveTab(tab)}
           />
         )}
 

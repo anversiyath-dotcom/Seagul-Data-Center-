@@ -197,12 +197,14 @@ Extraction Rules:
 12. Extract Trip Type into "tripType" as "One Way", "Round Trip", or "Multi-City".
 13. Extract Cabin Class into "cabinClass" as "Economy", "Premium Economy", "Business", or "First".
 14. Extract Baggage Allowance into "baggageAllowance" e.g. "30 Kg", "20 Kg", "2 PCs".
-15. Extract Total Price / Refundable Amount / Ticket Fare in numbers into "totalAmount" e.g. 125000.
-16. Extract Issuing Travel Agency / Supplier Name into "supplier" if visible e.g. "Mercy Travels", "AeroConnect Ltd".
-17. Extract Reissue or Fare Category into "reissueCategory" e.g. "Standard Reissue", "Issued / Confirmed", "Original Issue".
-18. Determine if this document is a Group Booking / Multi-passenger booking into "isGroupBooking" (boolean: set to true if multiple passengers or ticket numbers are listed under the same PNR reference, otherwise false).
+15. Extract Total Selling Price / Ticket Fare in numbers into "totalAmount" or "sellingPrice" e.g. 125000.
+16. If visible, extract Airline Net Fare / Base Cost in numbers into "costPrice" e.g. 105000.
+17. Extract Issuing Travel Agency / Supplier Name into "supplier" if visible e.g. "Mercy Travels", "AeroConnect Ltd".
+18. Extract Reissue or Fare Category into "reissueCategory" e.g. "Standard Reissue", "Issued / Confirmed", "Original Issue".
+19. Determine if this document is a Group Booking / Multi-passenger booking into "isGroupBooking" (boolean: set to true if multiple passengers or ticket numbers are listed under the same PNR reference, otherwise false).
+20. If it is a group or has multiple passengers, extract "groupName" (e.g. tour or delegation title if noted), "groupSize" (number of passengers), and "travelersList" (list of full names of all passengers).
 
-Format dates as DD/MM/YYYY. If any field is missing or unreadable, return empty string or 0 for totalAmount.`;
+Format dates as DD/MM/YYYY. If any field is missing or unreadable, return empty string or 0 for numeric fields.`;
 
       const response = await generateWithFallback(ai, {
         contents: {
@@ -226,6 +228,7 @@ Format dates as DD/MM/YYYY. If any field is missing or unreadable, return empty 
               tickets: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of ticket numbers" },
               pnr: { type: Type.STRING, description: "PNR / Booking Reference code" },
               travelerName: { type: Type.STRING, description: "Passenger / Traveler Full Name" },
+              travelersList: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of all traveler names if multi-passenger or group" },
               airline: { type: Type.STRING, description: "Airline name" },
               flightNo: { type: Type.STRING, description: "Flight number e.g. UL 225" },
               departureTime: { type: Type.STRING, description: "Flight Departure Time e.g. 10:30 AM" },
@@ -241,9 +244,13 @@ Format dates as DD/MM/YYYY. If any field is missing or unreadable, return empty 
               cabinClass: { type: Type.STRING, description: "Cabin Class e.g. Economy, Business" },
               baggageAllowance: { type: Type.STRING, description: "Baggage allowance e.g. 30 Kg" },
               totalAmount: { type: Type.NUMBER, description: "Total ticket price or fare" },
+              costPrice: { type: Type.NUMBER, description: "Airline net / base cost if indicated" },
+              sellingPrice: { type: Type.NUMBER, description: "Selling ticket price / gross fare" },
               supplier: { type: Type.STRING, description: "Supplier or issuing agency" },
               reissueCategory: { type: Type.STRING, description: "Reissue category or status" },
               isGroupBooking: { type: Type.BOOLEAN, description: "True if multiple passengers/tickets share the same PNR" },
+              groupName: { type: Type.STRING, description: "Group or tour reference name if mentioned" },
+              groupSize: { type: Type.NUMBER, description: "Total count of passengers in the booking" },
             },
             required: ["pnr", "travelerName", "airline"],
           },

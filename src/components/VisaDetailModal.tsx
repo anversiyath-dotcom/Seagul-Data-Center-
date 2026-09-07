@@ -124,11 +124,11 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
                   onClose();
                   onEditVisa(visa);
                 }}
-                className="hidden sm:inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors cursor-pointer border border-slate-700"
-                title="Edit Application"
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold transition-all shadow-sm cursor-pointer"
+                title="Edit Visa Application Details"
               >
                 <Edit3 className="w-3.5 h-3.5" />
-                <span>Edit</span>
+                <span>Edit Visa</span>
               </button>
             )}
 
@@ -881,6 +881,19 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
+            {onEditVisa && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onEditVisa(visa);
+                }}
+                className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-xs flex items-center space-x-1 cursor-pointer"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Edit Record</span>
+              </button>
+            )}
+
             {onDeleteVisa && (
               <button
                 onClick={() => {

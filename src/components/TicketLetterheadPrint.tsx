@@ -142,8 +142,16 @@ export const TicketLetterheadPrint: React.FC<TicketLetterheadPrintProps> = ({
 
             <div>
               <span className="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider block">
-                PASSENGER
+                {ticket.isGroupBooking ? 'GROUP & PASSENGERS' : 'PASSENGER'}
               </span>
+              {ticket.isGroupBooking && (
+                <div className="text-xs font-black text-indigo-700 uppercase tracking-wide flex items-center gap-1.5 mb-1">
+                  <span>GROUP: {ticket.groupName || 'Tour Group'}</span>
+                  <span className="bg-indigo-100 text-indigo-900 text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold">
+                    {ticket.groupSize || ticket.travelers?.length || 1} Pax
+                  </span>
+                </div>
+              )}
               <span className="text-sm sm:text-base font-black text-slate-900 uppercase tracking-wide block">
                 {primaryTraveler}
               </span>

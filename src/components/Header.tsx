@@ -1,11 +1,11 @@
 import React from 'react';
-import { Plane, FileText, LayoutDashboard, Plus, Search, ArrowRightLeft, LogOut, User, Building2 } from 'lucide-react';
+import { Plane, FileText, LayoutDashboard, Plus, Search, ArrowRightLeft, LogOut, User, Building2, Calculator } from 'lucide-react';
 import { SeagullLogo } from './SeagullLogo';
 import { CompanyProfile } from '../types';
 
 interface HeaderProps {
-  activeTab: 'dashboard' | 'tickets' | 'visas';
-  setActiveTab: (tab: 'dashboard' | 'tickets' | 'visas') => void;
+  activeTab: 'dashboard' | 'tickets' | 'visas' | 'accounting';
+  setActiveTab: (tab: 'dashboard' | 'tickets' | 'visas' | 'accounting') => void;
   searchTerm: string;
   setSearchTerm: (term: string) => void;
   onAddTicket: () => void;
@@ -95,6 +95,18 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="bg-slate-900/60 text-emerald-300 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
                 {visaCount}
               </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('accounting')}
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+                activeTab === 'accounting'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+              }`}
+            >
+              <Calculator className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Financials & Profit</span>
             </button>
           </nav>
 

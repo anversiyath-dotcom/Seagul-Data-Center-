@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { TicketFollowup, TicketStatus, CustomerType } from '../types';
+import { TicketFollowup, TicketStatus, CustomerType, TicketPaymentStatus, Traveler } from '../types';
 import { 
   X, Plus, Plane, DollarSign, Building2, User, Calendar, MapPin, Luggage, 
   AlertTriangle, ExternalLink, Edit3, Save, Upload, FileText, Sparkles, 
-  CheckCircle2, Trash2, Loader2, Paperclip, Image as ImageIcon, Clock 
+  CheckCircle2, Trash2, Loader2, Paperclip, Image as ImageIcon, Clock,
+  Users, TrendingUp, TrendingDown, Calculator, Check, ArrowRight, Copy, ClipboardList
 } from 'lucide-react';
 
 interface AddTicketModalProps {
@@ -53,11 +54,27 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
   const [comment, setComment] = useState('E-ticket confirmed and sent to passenger');
   const [travelerName, setTravelerName] = useState('MRS ARUMAKSAYAKKARALAGE / RASIKA');
 
+  // Group Booking & Financials state
+  const [isGroupBooking, setIsGroupBooking] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupSize, setGroupSize] = useState<number>(1);
+  const [pricingMode, setPricingMode] = useState<'total' | 'per_pax'>('per_pax');
+  const [costPrice, setCostPrice] = useState<string>('105000');
+  const [sellingPrice, setSellingPrice] = useState<string>('125000');
+  const [costPerPax, setCostPerPax] = useState<string>('105000');
+  const [sellingPerPax, setSellingPerPax] = useState<string>('125000');
+  const [currency, setCurrency] = useState<string>('LKR');
+  const [paymentStatus, setPaymentStatus] = useState<TicketPaymentStatus>('Pending');
+
+  // Dynamic Passenger List for Group or Individual
+  const [groupTravelers, setGroupTravelers] = useState<Array<{ id: string; name: string; ticketNo: string }>>([
+    { id: 'trv-1', name: 'MRS ARUMAKSAYAKKARALAGE / RASIKA', ticketNo: '1572134128637' }
+  ]);
+  const [showBulkPasteModal, setShowBulkPasteModal] = useState(false);
+  const [bulkPasteText, setBulkPasteText] = useState('');
+
   const [overrideDuplicate, setOverrideDuplicate] = useState(false);
   const [showDuplicateError, setShowDuplicateError] = useState(false);
-
-  // Group Booking state (Allow shared PNR for multi-passenger bookings)
-  const [isGroupBooking, setIsGroupBooking] = useState(editingTicket?.isGroupBooking || false);
 
   // Attachment state & AI Auto Extraction
   const [ticketAttachment, setTicketAttachment] = useState<string | undefined>(editingTicket?.ticketAttachment);
@@ -90,13 +107,48 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
       setBaggageAllowance(editingTicket.baggageAllowance || '30 Kg');
       setReissueCategory(editingTicket.reissueCategory || 'Standard Reissue');
       setStatus(editingTicket.status || 'Issued / Confirmed');
-      setTotalRefundable(editingTicket.totalRefundable ? String(editingTicket.totalRefundable) : (editingTicket.refundAmount ? String(editingTicket.refundAmount) : ''));
+      
+      const sPrice = editingTicket.sellingPrice !== undefined 
+        ? String(editingTicket.sellingPrice) 
+        : (editingTicket.totalRefundable ? String(editingTicket.totalRefundable) : (editingTicket.refundAmount ? String(editingTicket.refundAmount) : '125000'));
+      const cPrice = editingTicket.costPrice !== undefined ? String(editingTicket.costPrice) : '105000';
+      setSellingPrice(sPrice);
+      setTotalRefundable(sPrice);
+      setCostPrice(cPrice);
+      setCostPerPax(editingTicket.costPerPax !== undefined ? String(editingTicket.costPerPax) : cPrice);
+      setSellingPerPax(editingTicket.sellingPerPax !== undefined ? String(editingTicket.sellingPerPax) : sPrice);
+      setCurrency(editingTicket.currency || 'LKR');
+      setPaymentStatus(editingTicket.paymentStatus || 'Pending');
+
       setRefundReason(editingTicket.refundReason || 'New Flight Ticket Issued');
       setComment(editingTicket.comment || '');
       setTravelerName(editingTicket.travelers?.[0]?.name || 'PASSENGER NAME');
       setTicketAttachment(editingTicket.ticketAttachment);
       setTicketFileName(editingTicket.ticketFileName);
-      setIsGroupBooking(editingTicket.isGroupBooking || false);
+      
+      const isGroup = editingTicket.isGroupBooking || false;
+      setIsGroupBooking(isGroup);
+      setGroupName(editingTicket.groupName || '');
+      setPricingMode(editingTicket.pricingMode || (isGroup ? 'per_pax' : 'total'));
+
+      if (editingTicket.travelers && editingTicket.travelers.length > 0) {
+        setGroupTravelers(editingTicket.travelers.map(t => ({
+          id: t.id || `trv-${Date.now()}-${Math.random()}`,
+          name: t.name,
+          ticketNo: t.ticketNo
+        })));
+        setGroupSize(editingTicket.groupSize || editingTicket.travelers.length);
+      } else {
+        const trvs = Array.isArray(editingTicket.tickets) && editingTicket.tickets.length > 0
+          ? editingTicket.tickets.map((tNum, idx) => ({
+              id: `trv-${Date.now()}-${idx}`,
+              name: idx === 0 ? (editingTicket.travelers?.[0]?.name || editingTicket.customer) : `PASSENGER ${idx + 1}`,
+              ticketNo: tNum
+            }))
+          : [{ id: `trv-${Date.now()}-1`, name: editingTicket.customer, ticketNo: editingTicket.pnr || '1572134128637' }];
+        setGroupTravelers(trvs);
+        setGroupSize(editingTicket.groupSize || trvs.length);
+      }
     } else {
       setTicketNumbersText('');
       setPnr('');
@@ -120,12 +172,24 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
       setReissueCategory('Standard Reissue');
       setStatus('Issued / Confirmed');
       setTotalRefundable('125000');
+      setCostPrice('105000');
+      setSellingPrice('125000');
+      setCostPerPax('105000');
+      setSellingPerPax('125000');
+      setCurrency('LKR');
+      setPaymentStatus('Pending');
       setRefundReason('New Flight Ticket Issued');
       setComment('E-ticket confirmed and sent to passenger');
       setTravelerName('MRS ARUMAKSAYAKKARALAGE / RASIKA');
       setTicketAttachment(undefined);
       setTicketFileName(undefined);
       setIsGroupBooking(false);
+      setGroupName('');
+      setGroupSize(1);
+      setPricingMode('per_pax');
+      setGroupTravelers([
+        { id: `trv-${Date.now()}-1`, name: 'MRS ARUMAKSAYAKKARALAGE / RASIKA', ticketNo: '1572134128637' }
+      ]);
     }
     setOverrideDuplicate(false);
     setShowDuplicateError(false);
@@ -165,6 +229,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
             tickets: extractedTickets,
             pnr: extractedPnr,
             travelerName: extractedTraveler,
+            travelersList: extractedTravelersList,
             airline: extractedAirline,
             flightNo: extractedFlight,
             returnFlightNo: extractedReturnFlight,
@@ -180,19 +245,23 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
             cabinClass: extractedCabin,
             baggageAllowance: extractedBaggage,
             totalAmount: extractedTotal,
+            costPrice: extractedCost,
+            sellingPrice: extractedSelling,
             supplier: extractedSupplier,
             reissueCategory: extractedReissueCat,
-            isGroupBooking: extractedGroupBooking
+            isGroupBooking: extractedGroupBooking,
+            groupName: extractedGroupName,
+            groupSize: extractedGroupSize
           } = result.data;
+
+          const isGroup = Boolean(extractedGroupBooking || (Array.isArray(extractedTickets) && extractedTickets.length > 1) || (Array.isArray(extractedTravelersList) && extractedTravelersList.length > 1));
 
           if (Array.isArray(extractedTickets) && extractedTickets.length > 0) {
             setTicketNumbersText(extractedTickets.join('\n'));
-            if (extractedTickets.length > 1) {
-              setIsGroupBooking(true);
-            }
           }
-          if (extractedGroupBooking) {
+          if (isGroup) {
             setIsGroupBooking(true);
+            if (extractedGroupName) setGroupName(extractedGroupName);
           }
           if (extractedPnr) setPnr(extractedPnr.toUpperCase());
           if (extractedTraveler) setTravelerName(extractedTraveler.toUpperCase());
@@ -210,14 +279,45 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
           if (extractedTripType) setTripType(extractedTripType as any);
           if (extractedCabin) setCabinClass(extractedCabin as any);
           if (extractedBaggage) setBaggageAllowance(extractedBaggage);
-          if (extractedTotal && extractedTotal > 0) setTotalRefundable(String(extractedTotal));
+
+          // Pricing extraction
+          const finalSell = extractedSelling || extractedTotal || 0;
+          if (finalSell > 0) {
+            setSellingPrice(String(finalSell));
+            setTotalRefundable(String(finalSell));
+            setSellingPerPax(String(finalSell));
+          }
+          if (extractedCost && extractedCost > 0) {
+            setCostPrice(String(extractedCost));
+            setCostPerPax(String(extractedCost));
+          }
+
+          // Build group travelers if multiple detected
+          if (Array.isArray(extractedTravelersList) && extractedTravelersList.length > 0) {
+            const trvs = extractedTravelersList.map((name: string, i: number) => ({
+              id: `trv-${Date.now()}-${i}`,
+              name: name.toUpperCase(),
+              ticketNo: (extractedTickets && extractedTickets[i]) ? extractedTickets[i] : ''
+            }));
+            setGroupTravelers(trvs);
+            setGroupSize(trvs.length);
+          } else if (Array.isArray(extractedTickets) && extractedTickets.length > 1) {
+            const trvs = extractedTickets.map((tNo: string, i: number) => ({
+              id: `trv-${Date.now()}-${i}`,
+              name: i === 0 && extractedTraveler ? extractedTraveler.toUpperCase() : `PASSENGER ${i + 1}`,
+              ticketNo: tNo
+            }));
+            setGroupTravelers(trvs);
+            setGroupSize(trvs.length);
+          }
+
           if (extractedSupplier) setSupplier(extractedSupplier);
           if (extractedReissueCat) setReissueCategory(extractedReissueCat);
 
           setScanStatus({
             type: 'success',
-            message: extractedGroupBooking || (Array.isArray(extractedTickets) && extractedTickets.length > 1)
-              ? '✨ AI Extraction Complete: Group booking detected with shared PNR!'
+            message: isGroup
+              ? `✨ AI Extraction Complete: Group booking detected with shared PNR (${extractedTickets?.length || extractedTravelersList?.length || 2} passengers)!`
               : '✨ Air ticket AI extraction completed successfully! Flight and ticket details populated.'
           });
         } else {
@@ -239,6 +339,137 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
 
     reader.readAsDataURL(file);
   };
+
+  // Group passenger row helpers
+  const handleAddTravelerRow = () => {
+    const newIdx = groupTravelers.length + 1;
+    setGroupTravelers(prev => [
+      ...prev,
+      { id: `trv-${Date.now()}-${newIdx}`, name: '', ticketNo: '' }
+    ]);
+    setGroupSize(prev => Math.max(prev + 1, groupTravelers.length + 1));
+  };
+
+  const handleUpdateTravelerRow = (id: string, field: 'name' | 'ticketNo', val: string) => {
+    setGroupTravelers(prev =>
+      prev.map(item => (item.id === id ? { ...item, [field]: val } : item))
+    );
+  };
+
+  const handleRemoveTravelerRow = (id: string) => {
+    if (groupTravelers.length <= 1) return;
+    setGroupTravelers(prev => prev.filter(item => item.id !== id));
+    setGroupSize(prev => Math.max(1, prev - 1));
+  };
+
+  const handleParseBulkPaste = () => {
+    if (!bulkPasteText.trim()) return;
+    const lines = bulkPasteText.split('\n').map(l => l.trim()).filter(Boolean);
+    const parsed: Array<{ id: string; name: string; ticketNo: string }> = [];
+
+    lines.forEach((line, idx) => {
+      // Remove leading numbers like "1.", "1 -", etc.
+      const cleanLine = line.replace(/^\d+[\.\-\)]\s*/, '').trim();
+      let name = '';
+      let tNo = '';
+
+      if (cleanLine.includes('-')) {
+        const parts = cleanLine.split('-');
+        name = parts[0].trim();
+        tNo = parts[1].trim();
+      } else if (cleanLine.includes(',')) {
+        const parts = cleanLine.split(',');
+        name = parts[0].trim();
+        tNo = parts[1].trim();
+      } else {
+        // Try regex match for ticket number (10 to 14 digits)
+        const match = cleanLine.match(/(\d{10,14})/);
+        if (match) {
+          tNo = match[1];
+          name = cleanLine.replace(match[1], '').trim();
+        } else {
+          name = cleanLine;
+        }
+      }
+
+      parsed.push({
+        id: `trv-${Date.now()}-${idx}`,
+        name: name.toUpperCase(),
+        ticketNo: tNo
+      });
+    });
+
+    if (parsed.length > 0) {
+      setGroupTravelers(parsed);
+      setGroupSize(parsed.length);
+      setIsGroupBooking(true);
+      const allTickets = parsed.map(p => p.ticketNo).filter(Boolean);
+      if (allTickets.length > 0) {
+        setTicketNumbersText(allTickets.join('\n'));
+      }
+      setShowBulkPasteModal(false);
+      setBulkPasteText('');
+    }
+  };
+
+  // Real-time financial calculations
+  const effectivePaxCount = isGroupBooking 
+    ? Math.max(1, groupTravelers.length > 0 ? groupTravelers.length : (Number(groupSize) || 1)) 
+    : 1;
+
+  const computedFinancials = React.useMemo(() => {
+    if (isGroupBooking) {
+      if (pricingMode === 'per_pax') {
+        const cPerPax = parseFloat(costPerPax) || 0;
+        const sPerPax = parseFloat(sellingPerPax) || 0;
+        const totalC = cPerPax * effectivePaxCount;
+        const totalS = sPerPax * effectivePaxCount;
+        const profit = totalS - totalC;
+        const profitPax = sPerPax - cPerPax;
+        const margin = totalS > 0 ? ((profit / totalS) * 100) : 0;
+        return {
+          totalCost: totalC,
+          totalSelling: totalS,
+          profit,
+          costPerPax: cPerPax,
+          sellingPerPax: sPerPax,
+          profitPerPax: profitPax,
+          margin: Math.round(margin * 10) / 10
+        };
+      } else {
+        const totalC = parseFloat(costPrice) || 0;
+        const totalS = parseFloat(sellingPrice) || (parseFloat(totalRefundable) || 0);
+        const profit = totalS - totalC;
+        const cPerPax = Math.round(totalC / effectivePaxCount);
+        const sPerPax = Math.round(totalS / effectivePaxCount);
+        const profitPax = Math.round(profit / effectivePaxCount);
+        const margin = totalS > 0 ? ((profit / totalS) * 100) : 0;
+        return {
+          totalCost: totalC,
+          totalSelling: totalS,
+          profit,
+          costPerPax: cPerPax,
+          sellingPerPax: sPerPax,
+          profitPerPax: profitPax,
+          margin: Math.round(margin * 10) / 10
+        };
+      }
+    } else {
+      const totalC = parseFloat(costPrice) || 0;
+      const totalS = parseFloat(sellingPrice) || (parseFloat(totalRefundable) || 0);
+      const profit = totalS - totalC;
+      const margin = totalS > 0 ? ((profit / totalS) * 100) : 0;
+      return {
+        totalCost: totalC,
+        totalSelling: totalS,
+        profit,
+        costPerPax: totalC,
+        sellingPerPax: totalS,
+        profitPerPax: profit,
+        margin: Math.round(margin * 10) / 10
+      };
+    }
+  }, [isGroupBooking, pricingMode, costPrice, sellingPrice, costPerPax, sellingPerPax, totalRefundable, effectivePaxCount]);
 
   // Check for duplicate ticket entries
   const findDuplicateTicket = (): { ticket: TicketFollowup; reason: string } | null => {
@@ -302,26 +533,58 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const amountNum = parseFloat(totalRefundable) || 0;
     const todayStr = new Date().toLocaleDateString('en-GB');
-
     const routeStr = `${departureLocation || 'CMB'} → ${arrivalLocation || 'DXB'}`;
+
+    const finalCost = computedFinancials.totalCost;
+    const finalSelling = computedFinancials.totalSelling || parseFloat(totalRefundable) || 0;
+    const finalProfit = computedFinancials.profit;
+    const finalMargin = computedFinancials.margin;
+    const finalCostPax = computedFinancials.costPerPax;
+    const finalSellingPax = computedFinancials.sellingPerPax;
+    const finalProfitPax = computedFinancials.profitPerPax;
+
+    // Travelers array construction
+    let finalTravelers: Traveler[] = [];
+    if (isGroupBooking && groupTravelers.length > 0) {
+      finalTravelers = groupTravelers.map((t, idx) => ({
+        id: t.id || `trv-${Date.now()}-${idx}`,
+        name: t.name.trim().toUpperCase() || `PASSENGER ${idx + 1}`,
+        ticketNo: t.ticketNo.trim() || (ticketsList[idx] || `1572${Math.floor(100000000 + Math.random() * 900000000)}`),
+        costPrice: finalCostPax,
+        sellingPrice: finalSellingPax
+      }));
+    } else {
+      finalTravelers = [
+        {
+          id: editingTicket?.travelers?.[0]?.id || `trv-${Date.now()}`,
+          name: (travelerName || 'PASSENGER NAME').trim().toUpperCase(),
+          ticketNo: (ticketsList[0] ?? editingTicket?.tickets?.[0] ?? '1572134128637'),
+          costPrice: finalCost,
+          sellingPrice: finalSelling
+        }
+      ];
+    }
+
+    const finalTicketsArray = isGroupBooking && groupTravelers.length > 0
+      ? groupTravelers.map(t => t.ticketNo.trim()).filter(Boolean)
+      : (ticketsList.length > 0 ? ticketsList : [`1572${Math.floor(100000000 + Math.random() * 900000000)}`]);
 
     if (editingTicket && onUpdateTicket) {
       const updatedTicket: TicketFollowup = {
         ...editingTicket,
-        tickets: ticketsList.length > 0 ? ticketsList : editingTicket.tickets,
+        tickets: finalTicketsArray.length > 0 ? finalTicketsArray : editingTicket.tickets,
         newBooking: pnr || editingTicket.newBooking || 'N/A',
         pnr: pnr || editingTicket.pnr || 'DCYMLG',
         status: status,
         reissueCategory: reissueCategory,
         comment: comment || editingTicket.comment,
-        quote: `LKR ${amountNum.toLocaleString()}`,
+        quote: `${currency} ${finalSelling.toLocaleString()}`,
         customer: customer || editingTicket.customer,
         customerType: customerType,
         supplier: supplier || editingTicket.supplier,
-        totalRefundable: amountNum,
-        refundAmount: amountNum,
+        totalRefundable: finalSelling,
+        refundAmount: finalSelling,
         refundReason: refundReason,
         airline: airline || editingTicket.airline,
         flyDate: flyDate || editingTicket.flyDate,
@@ -337,13 +600,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
         returnArrivalTime: tripType === 'Round Trip' ? returnArrivalTime : undefined,
         cabinClass: cabinClass,
         baggageAllowance: baggageAllowance,
-        travelers: [
-          {
-            id: editingTicket.travelers?.[0]?.id || `trv-${Date.now()}`,
-            name: travelerName || 'PASSENGER NAME',
-            ticketNo: (ticketsList[0] ?? editingTicket.tickets?.[0] ?? '1572134128637')
-          }
-        ],
+        travelers: finalTravelers,
         itinerary: [
           {
             id: editingTicket.itinerary?.[0]?.id || `itin-${Date.now()}`,
@@ -354,28 +611,40 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
         ],
         ticketAttachment: ticketAttachment,
         ticketFileName: ticketFileName,
-        isGroupBooking: isGroupBooking
+        isGroupBooking: isGroupBooking,
+        groupName: isGroupBooking ? (groupName.trim() || 'Group Booking') : undefined,
+        groupSize: isGroupBooking ? effectivePaxCount : 1,
+        pricingMode: isGroupBooking ? pricingMode : undefined,
+        costPrice: finalCost,
+        sellingPrice: finalSelling,
+        profit: finalProfit,
+        profitMargin: finalMargin,
+        costPerPax: finalCostPax,
+        sellingPerPax: finalSellingPax,
+        profitPerPax: finalProfitPax,
+        paymentStatus: paymentStatus,
+        currency: currency
       };
       onUpdateTicket(updatedTicket);
     } else {
       const newTicket: TicketFollowup = {
         id: `tkt-${Date.now()}`,
-        tickets: ticketsList.length > 0 ? ticketsList : [`1572${Math.floor(100000000 + Math.random() * 900000000)}`],
+        tickets: finalTicketsArray,
         newBooking: pnr || 'N/A',
         status: status,
         reissueCategory: reissueCategory,
         comment: comment || 'Ticket issued',
-        quote: `LKR ${amountNum.toLocaleString()}`,
+        quote: `${currency} ${finalSelling.toLocaleString()}`,
         outcome: 'Ticket Active & Tracked',
         customer: customer.trim() || 'Seagull Global',
         customerType: customerType,
         supplier: supplier || 'Standard Airline Supplier',
         requestDate: todayStr,
         pnr: pnr || 'DCYMLG',
-        totalRefundable: amountNum,
-        refundAmount: amountNum,
+        totalRefundable: finalSelling,
+        refundAmount: finalSelling,
         serviceFee: 0,
-        currency: 'LKR',
+        currency: currency,
         timeline: [
           { id: 'tm-1', title: 'ISSUED', date: todayStr, completed: true },
           { id: 'tm-2', title: 'FLOWN / COMPLETED', date: flyDate, completed: status === 'Flown' || status === 'Completed' }
@@ -395,13 +664,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
         returnArrivalTime: tripType === 'Round Trip' ? returnArrivalTime : undefined,
         cabinClass: cabinClass,
         baggageAllowance: baggageAllowance,
-        travelers: [
-          {
-            id: `trv-${Date.now()}`,
-            name: travelerName || 'PASSENGER NAME',
-            ticketNo: (ticketsList[0] ?? '1572134128637')
-          }
-        ],
+        travelers: finalTravelers,
         itinerary: [
           {
             id: `itin-${Date.now()}`,
@@ -413,7 +676,18 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
         createdAt: new Date().toISOString(),
         ticketAttachment: ticketAttachment,
         ticketFileName: ticketFileName,
-        isGroupBooking: isGroupBooking
+        isGroupBooking: isGroupBooking,
+        groupName: isGroupBooking ? (groupName.trim() || 'Group Booking') : undefined,
+        groupSize: isGroupBooking ? effectivePaxCount : 1,
+        pricingMode: isGroupBooking ? pricingMode : undefined,
+        costPrice: finalCost,
+        sellingPrice: finalSelling,
+        profit: finalProfit,
+        profitMargin: finalMargin,
+        costPerPax: finalCostPax,
+        sellingPerPax: finalSellingPax,
+        profitPerPax: finalProfitPax,
+        paymentStatus: paymentStatus
       };
       onAddTicket(newTicket);
     }
@@ -894,64 +1168,214 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
             </div>
           </div>
 
-          {/* Section 2: Ticket & Booking Details */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="font-bold text-slate-700 block mb-1">
-                Ticket Number(s) <span className="text-slate-400 font-normal">(comma / space separated)</span>
-              </label>
-              <textarea
-                value={ticketNumbersText}
-                onChange={(e) => setTicketNumbersText(e.target.value)}
-                placeholder="1572134128637 1572134128636"
-                rows={2}
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                required
-              />
+          {/* Section 2: Booking Reference & Passenger / Group Roster */}
+          <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
+              <div className="flex items-center space-x-2">
+                <div className={`p-1.5 rounded-lg ${isGroupBooking ? 'bg-indigo-600 text-white' : 'bg-blue-600 text-white'}`}>
+                  {isGroupBooking ? <Users className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider">
+                    {isGroupBooking ? 'Group Booking & Passenger Roster' : 'Individual Booking & Ticket'}
+                  </h4>
+                  <p className="text-[10px] text-slate-500">
+                    {isGroupBooking 
+                      ? 'Multiple passengers sharing same PNR with individual ticket numbers' 
+                      : 'Single passenger booking with dedicated ticket number'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Group Booking Toggle */}
+              <div className="flex items-center space-x-1 bg-white p-1 rounded-lg border border-slate-200 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setIsGroupBooking(false)}
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                    !isGroupBooking
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  <User className="w-3 h-3" />
+                  <span>Single Passenger</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsGroupBooking(true);
+                    if (groupTravelers.length === 0) {
+                      setGroupTravelers([
+                        { id: `trv-${Date.now()}-1`, name: travelerName || 'PASSENGER 1', ticketNo: ticketNumbersText.split(/[\s,]+/)[0] || '' },
+                        { id: `trv-${Date.now()}-2`, name: '', ticketNo: '' }
+                      ]);
+                      setGroupSize(2);
+                    }
+                  }}
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                    isGroupBooking
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  <Users className="w-3 h-3" />
+                  <span>Group Booking (Shared PNR)</span>
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-2">
+            {/* PNR and (if Group) Group Name */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-bold text-slate-700 block">PNR / Booking Reference</label>
-                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md hover:bg-indigo-100 transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={isGroupBooking}
-                      onChange={(e) => setIsGroupBooking(e.target.checked)}
-                      className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
-                    />
-                    <span className="text-[11px] font-bold text-indigo-900">
-                      Group Booking / Shared PNR
+                <label className="font-bold text-slate-700 block mb-1 flex items-center justify-between text-xs">
+                  <span>PNR / Booking Reference</span>
+                  {isGroupBooking && (
+                    <span className="text-[10px] text-indigo-700 font-extrabold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                      ✓ Shared across all {groupTravelers.length || groupSize} pax
                     </span>
-                  </label>
-                </div>
+                  )}
+                </label>
                 <input
                   type="text"
                   value={pnr}
                   onChange={(e) => setPnr(e.target.value)}
                   placeholder="e.g. 6BHYAW or DCYMLG"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-mono uppercase font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2 font-mono uppercase font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   required
                 />
-                {isGroupBooking && (
-                  <p className="text-[10px] font-bold text-indigo-700 mt-1 flex items-center gap-1">
-                    <span>✓ Group Booking enabled: PNR can be shared across multiple passengers/tickets without duplicate block.</span>
-                  </p>
-                )}
               </div>
 
+              {isGroupBooking ? (
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1 text-xs">
+                    Group Identifier / Tour Name
+                  </label>
+                  <input
+                    type="text"
+                    value={groupName}
+                    onChange={(e) => setGroupName(e.target.value)}
+                    placeholder="e.g. Dubai Umrah Group - Nov 2026, Tech Delegation"
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2 font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1 text-xs">Passenger Full Name</label>
+                  <input
+                    type="text"
+                    value={travelerName}
+                    onChange={(e) => setTravelerName(e.target.value)}
+                    placeholder="MR/MRS PASSENGER FULL NAME"
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2 uppercase font-bold text-slate-900"
+                    required
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Individual vs Group Passenger Management */}
+            {isGroupBooking ? (
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold text-slate-800">
+                      Passenger Roster ({groupTravelers.length} Passengers)
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      All passengers are recorded under PNR <strong className="font-mono text-slate-800">{pnr || 'DCYMLG'}</strong>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowBulkPasteModal(true)}
+                      className="px-2 py-1 bg-white hover:bg-slate-100 text-indigo-700 border border-indigo-200 rounded text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                    >
+                      <ClipboardList className="w-3 h-3" />
+                      <span>Bulk Paste Roster</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddTravelerRow}
+                      className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Add Passenger</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Group Passenger Rows */}
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden max-h-56 overflow-y-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-100/80 border-b border-slate-200 text-slate-600 font-bold text-[10px] uppercase sticky top-0 z-10">
+                      <tr>
+                        <th className="py-1.5 px-3 w-10 text-center">#</th>
+                        <th className="py-1.5 px-3">Passenger Full Name</th>
+                        <th className="py-1.5 px-3 w-48">E-Ticket Number</th>
+                        <th className="py-1.5 px-2 w-10 text-center"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {groupTravelers.map((trv, idx) => (
+                        <tr key={trv.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-1.5 px-3 text-center font-bold text-slate-400 text-[11px]">
+                            {idx + 1}
+                          </td>
+                          <td className="py-1.5 px-3">
+                            <input
+                              type="text"
+                              value={trv.name}
+                              onChange={(e) => handleUpdateTravelerRow(trv.id, 'name', e.target.value)}
+                              placeholder={`Passenger ${idx + 1} Name`}
+                              className="w-full bg-transparent border-0 border-b border-slate-200 focus:border-indigo-600 focus:ring-0 p-1 font-bold uppercase text-slate-800 text-xs"
+                              required
+                            />
+                          </td>
+                          <td className="py-1.5 px-3">
+                            <input
+                              type="text"
+                              value={trv.ticketNo}
+                              onChange={(e) => handleUpdateTravelerRow(trv.id, 'ticketNo', e.target.value)}
+                              placeholder="1572134128637"
+                              className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 font-mono text-slate-900 text-xs focus:ring-1 focus:ring-indigo-500"
+                            />
+                          </td>
+                          <td className="py-1.5 px-2 text-center">
+                            {groupTravelers.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveTravelerRow(trv.id)}
+                                className="text-slate-400 hover:text-red-600 p-1 rounded transition-colors cursor-pointer"
+                                title="Remove Passenger"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Passenger Name</label>
-                <input
-                  type="text"
-                  value={travelerName}
-                  onChange={(e) => setTravelerName(e.target.value)}
-                  placeholder="MR/MRS PASSENGER FULL NAME"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 uppercase font-semibold text-slate-900"
+                <label className="font-bold text-slate-700 block mb-1 text-xs">
+                  Ticket Number(s) <span className="text-slate-400 font-normal">(13-14 digit e-ticket number)</span>
+                </label>
+                <textarea
+                  value={ticketNumbersText}
+                  onChange={(e) => setTicketNumbersText(e.target.value)}
+                  placeholder="1572134128637 1572134128636"
+                  rows={2}
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2 font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs"
+                  required
                 />
               </div>
-            </div>
+            )}
           </div>
 
           {/* Section 3: Customer / Agency Selection */}
@@ -991,7 +1415,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="font-bold text-slate-700 block mb-1">
+                <label className="font-bold text-slate-700 block mb-1 text-xs">
                   {customerType === 'Agency' ? 'Agency Name' : 'Customer Name'}
                 </label>
                 <input
@@ -1000,7 +1424,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
                   value={customer}
                   onChange={(e) => setCustomer(e.target.value)}
                   placeholder="Select or type Agency name"
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2 font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2 font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs"
                   required
                 />
                 <datalist id="ticket-recorded-agencies">
@@ -1014,70 +1438,278 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">GDS / Supplier</label>
+                <label className="font-bold text-slate-700 block mb-1 text-xs">GDS / Airline Supplier</label>
                 <input
                   type="text"
                   value={supplier}
                   onChange={(e) => setSupplier(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 focus:outline-none"
+                  placeholder="e.g. Amadeus GDS, Galileo, SriLankan Direct"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 focus:outline-none text-xs"
                 />
               </div>
             </div>
           </div>
 
-          {/* Section 4: Price & Status */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Section 4: Cost, Selling Price & Profit Calculation */}
+          <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white p-4 rounded-xl border border-slate-700 shadow-md space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/80 pb-2.5">
+              <div className="flex items-center space-x-2">
+                <div className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30">
+                  <Calculator className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-xs text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <span>Financials & Profit Calculation</span>
+                    {isGroupBooking && (
+                      <span className="bg-indigo-500/30 text-indigo-300 text-[10px] px-2 py-0.2 rounded border border-indigo-400/40">
+                        Group ({effectivePaxCount} Pax)
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-[10px] text-slate-400">
+                    Enter supplier cost and customer selling price to calculate profit and margin
+                  </p>
+                </div>
+              </div>
+
+              {/* Currency & Payment Status */}
+              <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1 bg-slate-800/90 px-2 py-1 rounded-lg border border-slate-700">
+                  <span className="text-[10px] text-slate-400 font-bold">CUR:</span>
+                  <select
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer"
+                  >
+                    <option value="LKR" className="bg-slate-800 text-white">LKR (Rs)</option>
+                    <option value="USD" className="bg-slate-800 text-white">USD ($)</option>
+                    <option value="AED" className="bg-slate-800 text-white">AED (د.إ)</option>
+                    <option value="EUR" className="bg-slate-800 text-white">EUR (€)</option>
+                    <option value="SAR" className="bg-slate-800 text-white">SAR (﷼)</option>
+                    <option value="GBP" className="bg-slate-800 text-white">GBP (£)</option>
+                  </select>
+                </div>
+
+                <select
+                  value={paymentStatus}
+                  onChange={(e) => setPaymentStatus(e.target.value as any)}
+                  className={`text-[10px] font-bold px-2 py-1 rounded-lg border cursor-pointer ${
+                    paymentStatus === 'Fully Paid'
+                      ? 'bg-emerald-900/60 border-emerald-500/50 text-emerald-300'
+                      : paymentStatus === 'Partial Paid'
+                      ? 'bg-amber-900/60 border-amber-500/50 text-amber-300'
+                      : 'bg-red-900/60 border-red-500/50 text-red-300'
+                  }`}
+                >
+                  <option value="Fully Paid" className="bg-slate-900 text-white">Fully Paid</option>
+                  <option value="Partial Paid" className="bg-slate-900 text-white">Partial Paid</option>
+                  <option value="Unpaid" className="bg-slate-900 text-white">Unpaid</option>
+                </select>
+              </div>
+            </div>
+
+            {/* If Group Booking: Mode Selector */}
+            {isGroupBooking && (
+              <div className="flex items-center justify-between bg-slate-800/60 p-2 rounded-lg border border-slate-700/60">
+                <span className="text-[11px] font-bold text-slate-300">
+                  Group Pricing Calculation Mode:
+                </span>
+                <div className="flex items-center space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => setPricingMode('per_pax')}
+                    className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                      pricingMode === 'per_pax'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-white bg-slate-700/60'
+                    }`}
+                  >
+                    Per Passenger (Per Pax)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPricingMode('total')}
+                    className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                      pricingMode === 'total'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-white bg-slate-700/60'
+                    }`}
+                  >
+                    Total Group Package
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Input fields based on mode */}
+            {isGroupBooking && pricingMode === 'per_pax' ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1 flex items-center justify-between">
+                    <span>Cost Price Per Pax ({currency})</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Supplier / GDS</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={costPerPax}
+                    onChange={(e) => setCostPerPax(e.target.value)}
+                    placeholder="e.g. 130000"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono font-bold text-white focus:border-blue-500 focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Total Group Cost: <strong className="text-slate-200">{currency} {computedFinancials.totalCost.toLocaleString()}</strong> ({effectivePaxCount} pax)
+                  </span>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1 flex items-center justify-between">
+                    <span>Selling Price Per Pax ({currency})</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Customer / Agency Quote</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={sellingPerPax}
+                    onChange={(e) => {
+                      setSellingPerPax(e.target.value);
+                      const num = parseFloat(e.target.value) || 0;
+                      setTotalRefundable(String(num * effectivePaxCount));
+                    }}
+                    placeholder="e.g. 150000"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono font-bold text-emerald-400 focus:border-emerald-500 focus:outline-none"
+                    required
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Total Group Selling: <strong className="text-emerald-300">{currency} {computedFinancials.totalSelling.toLocaleString()}</strong> ({effectivePaxCount} pax)
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1 flex items-center justify-between">
+                    <span>Cost Price ({currency})</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Supplier / GDS Net</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={costPrice}
+                    onChange={(e) => setCostPrice(e.target.value)}
+                    placeholder="e.g. 130000"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono font-bold text-white focus:border-blue-500 focus:outline-none"
+                  />
+                  {isGroupBooking && (
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      Cost per Pax: <strong className="text-slate-200">{currency} {computedFinancials.costPerPax.toLocaleString()}</strong>
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1 flex items-center justify-between">
+                    <span>Selling Price / Quote ({currency})</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Customer / Agency Gross</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={sellingPrice || totalRefundable}
+                    onChange={(e) => {
+                      setSellingPrice(e.target.value);
+                      setTotalRefundable(e.target.value);
+                    }}
+                    placeholder="e.g. 150000"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono font-bold text-emerald-400 focus:border-emerald-500 focus:outline-none"
+                    required
+                  />
+                  {isGroupBooking && (
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      Selling per Pax: <strong className="text-emerald-300">{currency} {computedFinancials.sellingPerPax.toLocaleString()}</strong>
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Calculated Profit & Margin Display Banner */}
+            <div className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 ${
+              computedFinancials.profit >= 0
+                ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200'
+                : 'bg-red-950/60 border-red-500/40 text-red-200'
+            }`}>
+              <div className="flex items-center space-x-2.5">
+                <div className={`p-2 rounded-lg ${
+                  computedFinancials.profit >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                }`}>
+                  {computedFinancials.profit >= 0 ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold tracking-wider opacity-80 block">
+                    {computedFinancials.profit >= 0 ? 'Calculated Net Profit' : 'Net Loss Alert'}
+                  </span>
+                  <div className="text-xl font-black font-mono tracking-tight flex items-baseline gap-1.5">
+                    <span>{currency} {computedFinancials.profit.toLocaleString()}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded font-extrabold ${
+                      computedFinancials.profit >= 0 ? 'bg-emerald-500/30 text-emerald-300' : 'bg-red-500/30 text-red-300'
+                    }`}>
+                      {computedFinancials.margin > 0 ? `+${computedFinancials.margin}%` : `${computedFinancials.margin}%`} Margin
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {isGroupBooking && (
+                <div className="text-right text-xs space-y-0.5 border-l border-emerald-500/20 pl-3">
+                  <div className="text-[10px] opacity-75 font-semibold uppercase">Profit Per Pax</div>
+                  <div className="font-mono font-bold text-white text-sm">
+                    {currency} {computedFinancials.profitPerPax.toLocaleString()} / pax
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Category & Status Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-700/60">
+              <div>
+                <label className="font-bold text-slate-300 block mb-1 text-xs">Reissue / Issue Category</label>
+                <select
+                  value={reissueCategory}
+                  onChange={(e) => setReissueCategory(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-semibold text-white text-xs cursor-pointer"
+                >
+                  <option value="New Issue">New Issue</option>
+                  <option value="Standard Reissue">Standard Reissue</option>
+                  <option value="Full Refund">Full Refund</option>
+                  <option value="No-Show Waiver">No-Show Waiver</option>
+                  <option value="Name Correction">Name Correction</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-300 block mb-1 text-xs">Initial Ticket Status</label>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as TicketStatus)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-bold text-white text-xs cursor-pointer"
+                >
+                  <option value="Issued / Confirmed">Issued / Confirmed</option>
+                  <option value="In-Progress">In-Progress</option>
+                  <option value="Flown">Flown</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Declined">Declined</option>
+                  <option value="Completed">Completed</option>
+                </select>
+              </div>
+            </div>
+
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Total Fare / Quote (LKR)</label>
+              <label className="font-bold text-slate-300 block mb-1 text-xs">Operational Comments / Notes</label>
               <input
-                type="number"
-                value={totalRefundable}
-                onChange={(e) => setTotalRefundable(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-mono font-bold text-slate-900"
+                type="text"
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="e.g. Confirmed on GDS, ticket emailed to customer"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white text-xs placeholder:text-slate-500"
               />
             </div>
-
-            <div>
-              <label className="font-bold text-slate-700 block mb-1">Category</label>
-              <select
-                value={reissueCategory}
-                onChange={(e) => setReissueCategory(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
-              >
-                <option value="New Issue">New Issue</option>
-                <option value="Standard Reissue">Standard Reissue</option>
-                <option value="Full Refund">Full Refund</option>
-                <option value="No-Show Waiver">No-Show Waiver</option>
-                <option value="Name Correction">Name Correction</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="font-bold text-slate-700 block mb-1">Initial Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as TicketStatus)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-bold text-slate-900"
-              >
-                <option value="Issued / Confirmed">Issued / Confirmed</option>
-                <option value="In-Progress">In-Progress</option>
-                <option value="Flown">Flown</option>
-                <option value="Approved">Approved</option>
-                <option value="Declined">Declined</option>
-                <option value="Completed">Completed</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="font-bold text-slate-700 block mb-1">Operational Comments / Notes</label>
-            <input
-              type="text"
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="e.g. Confirmed on GDS, ticket emailed to customer"
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-900"
-            />
           </div>
 
           {duplicateMatch && (
@@ -1126,6 +1758,57 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
           </div>
 
         </form>
+
+        {/* Bulk Paste Modal */}
+        {showBulkPasteModal && (
+          <div className="fixed inset-0 z-60 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-lg w-full p-4 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div className="flex items-center space-x-2">
+                  <ClipboardList className="w-4 h-4 text-indigo-600" />
+                  <h3 className="font-extrabold text-sm text-slate-900">Bulk Paste Passenger Roster</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBulkPasteModal(false)}
+                  className="text-slate-400 hover:text-slate-600 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600">
+                Paste names and ticket numbers (one per line). Formats supported:<br />
+                <code className="text-indigo-700 bg-indigo-50 px-1 py-0.5 rounded text-[11px]">JOHN DOE - 1572134128637</code> or <code className="text-indigo-700 bg-indigo-50 px-1 py-0.5 rounded text-[11px]">JOHN DOE, 1572134128637</code> or simply passenger names.
+              </p>
+
+              <textarea
+                value={bulkPasteText}
+                onChange={(e) => setBulkPasteText(e.target.value)}
+                placeholder={`1. AHMED MOHAMED - 1572134128637\n2. FATHIMA MOHAMED - 1572134128638\n3. ZAYN MOHAMED - 1572134128639`}
+                rows={6}
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 font-mono text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkPasteModal(false)}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleParseBulkPaste}
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs cursor-pointer shadow-xs"
+                >
+                  Import Passenger Roster
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

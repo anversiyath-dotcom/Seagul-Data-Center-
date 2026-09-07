@@ -10,11 +10,14 @@ import { VisaFollowup } from '../types';
 export function cleanupOversizedLocalStorage() {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
-    // Check if tf_visas is too large or causing issues
     const rawVisas = window.localStorage.getItem('tf_visas');
-    if (rawVisas && rawVisas.length > 500000) { // > 500KB
-      console.warn('tf_visas local cache exceeds 500KB. Clearing local cache to free quota.');
+    if (rawVisas && rawVisas.length > 250000) { // > 250KB
+      console.warn('tf_visas local cache exceeds limit. Clearing local cache to free browser storage quota.');
       window.localStorage.removeItem('tf_visas');
+    }
+    const rawTickets = window.localStorage.getItem('tf_tickets');
+    if (rawTickets && rawTickets.length > 250000) {
+      window.localStorage.removeItem('tf_tickets');
     }
   } catch (e) {
     try {
@@ -49,14 +52,19 @@ export function safeSetItem(key: string, value: any): boolean {
     window.localStorage.setItem(key, serialized);
     return true;
   } catch (err: any) {
-    console.warn(`SafeStorage: Failed to set "${key}" in localStorage (Quota or Security):`, err?.message || err);
-    // If quota exceeded, clean up non-essential keys to free memory
+    console.warn(`SafeStorage: Quota or Storage limit reached for "${key}". Cleaning up non-essential cached keys.`);
+    // If quota exceeded, clean up non-essential keys to free memory and suppress uncaught error
     try {
       window.localStorage.removeItem('tf_visas');
       window.localStorage.removeItem('tf_tickets');
       window.localStorage.removeItem('tf_comments');
+      // Retry with stripped value if possible
+      if (Array.isArray(value) && value.length > 0) {
+        const mini = value.slice(0, 10);
+        window.localStorage.setItem(key, JSON.stringify(mini));
+      }
     } catch {
-      // Ignore
+      // Ignore safely
     }
     return false;
   }

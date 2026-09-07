@@ -29,6 +29,10 @@ export interface Traveler {
   id: string;
   name: string;
   ticketNo: string;
+  passportNo?: string;
+  costPrice?: number;
+  sellingPrice?: number;
+  profit?: number;
 }
 
 export interface ItineraryLeg {
@@ -45,6 +49,8 @@ export interface TimelineStep {
   completed: boolean;
   active?: boolean;
 }
+
+export type TicketPaymentStatus = 'Paid' | 'Pending' | 'Partially Paid' | 'Fully Paid' | 'Partial Paid' | 'Unpaid';
 
 export interface TicketFollowup {
   id: string;
@@ -88,6 +94,17 @@ export interface TicketFollowup {
   ticketAttachment?: string; // Base64 or Data URL of attached e-ticket document/image
   ticketFileName?: string;
   isGroupBooking?: boolean; // Group booking / Multi-passenger sharing same PNR
+  groupName?: string; // Custom group name or reference e.g. "Sri Lanka Pilgrim Group"
+  groupSize?: number; // Total number of passengers in group
+  pricingMode?: 'total' | 'per_pax'; // Mode of pricing input
+  costPrice?: number; // Airline Net Purchasing Cost (Total)
+  sellingPrice?: number; // Selling Invoiced Price (Total)
+  profit?: number; // Total Net Profit (sellingPrice - costPrice)
+  profitMargin?: number; // Profit Margin %
+  costPerPax?: number; // Net Cost per passenger
+  sellingPerPax?: number; // Selling price per passenger
+  profitPerPax?: number; // Net profit per passenger
+  paymentStatus?: TicketPaymentStatus; // Payment collection status
   hideCustomer?: boolean;
   hideSupplier?: boolean;
   hideRefundable?: boolean;
