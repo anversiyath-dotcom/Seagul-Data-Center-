@@ -28,7 +28,7 @@ async function startServer() {
 
   // Helper to run GenAI generation with fallback models and quota protection
   const generateWithFallback = async (ai: GoogleGenAI, requestConfig: any) => {
-    const models = ["gemini-3.6-flash", "gemini-flash-latest", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite"];
+    const models = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview"];
     let lastError: any = null;
 
     for (const model of models) {
@@ -61,7 +61,6 @@ async function startServer() {
         
         console.warn(`Model ${model} failed (${errStr}). Trying next model...`);
         if (!isRetryable) {
-          // If it's a structural schema or validation error, don't keep trying other models
           throw err;
         }
       }
@@ -70,17 +69,170 @@ async function startServer() {
     throw lastError || new Error("AI service unavailable across models.");
   };
 
-  // API Route to parse passport image or visa document
-  app.post("/api/parse-passport", async (req, res) => {
-    try {
-      const { image, mimeType } = req.body;
-      if (!image) {
-        return res.status(400).json({ error: "No image data provided" });
+  // Helper to normalize any GitHub URL or direct link to a raw download URL
+  const normalizeGitHubUrl = (url: string): string => {
+    if (!url) return "";
+    let cleaned = url.trim();
+
+    // Clean surrounding quotes, markdown brackets or angle brackets
+    cleaned = cleaned.replace(/^[<"'\s]+|[>"'\s]+$/g, "");
+    const mdMatch = cleaned.match(/\((https?:\/\/[^\s)]+)\)/);
+    if (mdMatch) cleaned = mdMatch[1];
+
+    // Already a raw GitHub URL? Keep it
+    if (cleaned.startsWith("https://raw.githubusercontent.com/")) {
+      return cleaned;
+    }
+
+    // Pattern: https://github.com/:owner/:repo/blob/:branch/:path
+    const blobMatch = cleaned.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(?:refs\/heads\/)?([^/]+)\/(.+)$/i);
+    if (blobMatch) {
+      const [, owner, repo, branch, filePath] = blobMatch;
+      const cleanPath = filePath.split("?")[0];
+      return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${cleanPath}`;
+    }
+
+    // Pattern: https://github.com/:owner/:repo/raw/:branch/:path
+    const rawMatch = cleaned.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/raw\/(?:refs\/heads\/)?([^/]+)\/(.+)$/i);
+    if (rawMatch) {
+      const [, owner, repo, branch, filePath] = rawMatch;
+      const cleanPath = filePath.split("?")[0];
+      return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${cleanPath}`;
+    }
+
+    // Pattern: https://github.com/:owner/:repo/tree/:branch/:path
+    const treeMatch = cleaned.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/tree\/(?:refs\/heads\/)?([^/]+)\/(.+)$/i);
+    if (treeMatch) {
+      const [, owner, repo, branch, filePath] = treeMatch;
+      const cleanPath = filePath.split("?")[0];
+      return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${cleanPath}`;
+    }
+
+    // If github.com URL with ?raw=true
+    if (cleaned.includes("github.com") && cleaned.includes("?raw=true")) {
+      cleaned = cleaned.replace("/blob/", "/");
+      cleaned = cleaned.replace("https://github.com/", "https://raw.githubusercontent.com/");
+      cleaned = cleaned.replace("http://github.com/", "https://raw.githubusercontent.com/");
+      cleaned = cleaned.split("?")[0];
+    }
+
+    return cleaned;
+  };
+
+  // Helper to download an image from a GitHub link or public URL safely
+  const fetchImageFromUrl = async (url: string): Promise<{ cleanBase64: string; mimeType: string; dataUrl: string }> => {
+    let targetUrl = normalizeGitHubUrl(url);
+    console.log(`[Server Image Fetch] Downloading document from: ${targetUrl}`);
+
+    let res = await fetch(targetUrl, {
+      redirect: "follow",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,application/pdf,*/*;q=0.8",
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to download image from GitHub link (HTTP ${res.status}: ${res.statusText})`);
+    }
+
+    let contentType = res.headers.get("content-type") || "";
+
+    // If GitHub returned an HTML page (e.g. viewer page), extract the raw URL from the HTML and re-fetch
+    if (contentType.includes("text/html")) {
+      const htmlText = await res.text();
+      let extractedRawUrl: string | null = null;
+
+      // Check for rawBlobUrl JSON field in GitHub page
+      const rawBlobMatch = htmlText.match(/"rawBlobUrl"\s*:\s*"([^"]+)"/);
+      if (rawBlobMatch && rawBlobMatch[1]) {
+        extractedRawUrl = rawBlobMatch[1].replace(/\\u0026/g, "&");
       }
 
-      // Clean base64 string
-      const cleanBase64 = image.replace(/^data:[^;]+;base64,/, "");
-      const finalMimeType = mimeType || "image/jpeg";
+      // Check for raw.githubusercontent.com link in HTML
+      if (!extractedRawUrl) {
+        const rawContentMatch = htmlText.match(/href="([^"]*raw\.githubusercontent\.com\/[^"]+)"/);
+        if (rawContentMatch && rawContentMatch[1]) {
+          extractedRawUrl = rawContentMatch[1];
+        }
+      }
+
+      // Check for /owner/repo/raw/... link in HTML
+      if (!extractedRawUrl) {
+        const rawLinkMatch = htmlText.match(/href="(\/[^"\/]+\/[^"\/]+\/raw\/[^"]+)"/);
+        if (rawLinkMatch && rawLinkMatch[1]) {
+          extractedRawUrl = `https://github.com${rawLinkMatch[1]}`;
+        }
+      }
+
+      // Check for og:image meta tag
+      if (!extractedRawUrl) {
+        const ogImageMatch = htmlText.match(/<meta\s+property="og:image"\s+content="([^"]+)"/i);
+        if (ogImageMatch && ogImageMatch[1] && !ogImageMatch[1].includes("opengraph.githubassets.com")) {
+          extractedRawUrl = ogImageMatch[1];
+        }
+      }
+
+      if (extractedRawUrl) {
+        console.log(`[Server Image Fetch] Resolved raw image URL from GitHub page: ${extractedRawUrl}`);
+        res = await fetch(extractedRawUrl, {
+          redirect: "follow",
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,application/pdf,*/*;q=0.8",
+          },
+        });
+
+        if (!res.ok) {
+          throw new Error(`Failed to download raw image resolved from GitHub HTML (HTTP ${res.status})`);
+        }
+        contentType = res.headers.get("content-type") || "";
+      } else {
+        throw new Error("The GitHub URL points to a web page rather than a public image. Please ensure the repository is public and use a direct image link.");
+      }
+    }
+
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const cleanBase64 = buffer.toString("base64");
+
+    let mimeType = "image/jpeg";
+    if (contentType.startsWith("image/") || contentType.includes("pdf")) {
+      mimeType = contentType.split(";")[0].trim();
+    } else {
+      const lower = targetUrl.toLowerCase();
+      if (lower.endsWith(".png")) mimeType = "image/png";
+      else if (lower.endsWith(".webp")) mimeType = "image/webp";
+      else if (lower.endsWith(".pdf")) mimeType = "application/pdf";
+      else mimeType = "image/jpeg";
+    }
+
+    const dataUrl = `data:${mimeType};base64,${cleanBase64}`;
+    return { cleanBase64, mimeType, dataUrl };
+  };
+
+  // API Route to parse passport image or visa document
+  app.post("/api/parse-passport", async (req, res) => {
+    let resolvedDataUrl = "";
+    try {
+      const { image, mimeType, imageUrl } = req.body;
+      if (!image && !imageUrl) {
+        return res.status(400).json({ error: "No image data or GitHub link provided" });
+      }
+
+      let cleanBase64 = "";
+      let finalMimeType = mimeType || "image/jpeg";
+
+      if (imageUrl) {
+        const fetched = await fetchImageFromUrl(imageUrl);
+        cleanBase64 = fetched.cleanBase64;
+        finalMimeType = fetched.mimeType;
+        resolvedDataUrl = fetched.dataUrl;
+      } else if (image) {
+        cleanBase64 = image.replace(/^data:[^;]+;base64,/, "");
+        finalMimeType = mimeType || "image/jpeg";
+        resolvedDataUrl = image;
+      }
 
       const ai = getAI();
       const prompt = `You are an expert immigration document OCR scanner and AI processor specialized in UAE Visas, Entry Permits, E-Visas, Extension Approvals, Passports, and Emirates IDs.
@@ -141,7 +293,6 @@ Format all dates as DD/MM/YYYY. If any field is not visible or unreadable, retur
               visaCategory: { type: Type.STRING, description: "Visa duration or category" },
               status: { type: Type.STRING, description: "Visa status e.g. In Process, Posted, Documents Required, Approved, Extended, Used" },
             },
-            required: ["lastName", "firstName", "passportNo"],
           },
         },
       });
@@ -152,6 +303,7 @@ Format all dates as DD/MM/YYYY. If any field is not visible or unreadable, retur
       res.json({
         success: true,
         data: parsedData,
+        imageAttachment: resolvedDataUrl || undefined,
       });
     } catch (error: any) {
       console.error("Passport Parsing Error:", error);
@@ -160,23 +312,36 @@ Format all dates as DD/MM/YYYY. If any field is not visible or unreadable, retur
       res.status(isQuota ? 429 : 500).json({
         success: false,
         isQuotaExceeded: isQuota,
+        imageAttachment: resolvedDataUrl || undefined,
         error: isQuota
-          ? "AI daily API rate limit / quota reached. Document attached successfully! Please fill in details manually."
-          : (error.message || "Failed to process document image"),
+          ? "AI daily API rate limit / quota reached. Passport image attached! Please fill in details manually."
+          : (error.message || "Failed to process passport document image"),
       });
     }
   });
 
   // API Route to parse air ticket / e-ticket document
   app.post("/api/parse-ticket", async (req, res) => {
+    let resolvedDataUrl = "";
     try {
-      const { image, mimeType } = req.body;
-      if (!image) {
-        return res.status(400).json({ error: "No image or document data provided" });
+      const { image, mimeType, imageUrl } = req.body;
+      if (!image && !imageUrl) {
+        return res.status(400).json({ error: "No image, document data, or GitHub link provided" });
       }
 
-      const cleanBase64 = image.replace(/^data:[^;]+;base64,/, "");
-      const finalMimeType = mimeType || "image/jpeg";
+      let cleanBase64 = "";
+      let finalMimeType = mimeType || "image/jpeg";
+
+      if (imageUrl) {
+        const fetched = await fetchImageFromUrl(imageUrl);
+        cleanBase64 = fetched.cleanBase64;
+        finalMimeType = fetched.mimeType;
+        resolvedDataUrl = fetched.dataUrl;
+      } else if (image) {
+        cleanBase64 = image.replace(/^data:[^;]+;base64,/, "");
+        finalMimeType = mimeType || "image/jpeg";
+        resolvedDataUrl = image;
+      }
 
       const ai = getAI();
       const prompt = `You are an expert travel agent OCR and e-ticket document parser.
@@ -263,6 +428,7 @@ Format dates as DD/MM/YYYY. If any field is missing or unreadable, return empty 
       res.json({
         success: true,
         data: parsedData,
+        imageAttachment: resolvedDataUrl || undefined,
       });
     } catch (error: any) {
       console.error("Air Ticket Parsing Error:", error);
@@ -271,6 +437,7 @@ Format dates as DD/MM/YYYY. If any field is missing or unreadable, return empty 
       res.status(isQuota ? 429 : 500).json({
         success: false,
         isQuotaExceeded: isQuota,
+        imageAttachment: resolvedDataUrl || undefined,
         error: isQuota
           ? "AI daily API rate limit / quota reached. Ticket attached successfully! Please fill in details manually."
           : (error.message || "Failed to process air ticket document"),

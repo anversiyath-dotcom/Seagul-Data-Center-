@@ -646,11 +646,16 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
             <option value="Bahrain">🇧🇭 Bahrain</option>
             <option value="Malaysia">🇲🇾 Malaysia</option>
             <option value="Singapore">🇸🇬 Singapore</option>
+            <option value="Indonesia">🇮🇩 Indonesia</option>
             <option value="Thailand">🇹🇭 Thailand</option>
             <option value="Turkey">🇹🇷 Turkey</option>
             <option value="Schengen / Europe">🇪🇺 Schengen</option>
             <option value="United Kingdom (UK)">🇬🇧 UK</option>
             <option value="United States (USA)">🇺🇸 USA</option>
+            <option value="Canada">🇨🇦 Canada</option>
+            <option value="Australia">🇦🇺 Australia</option>
+            <option value="India">🇮🇳 India</option>
+            <option value="Sri Lanka">🇱🇰 Sri Lanka</option>
           </select>
 
           <select

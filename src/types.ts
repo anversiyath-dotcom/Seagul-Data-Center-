@@ -125,6 +125,22 @@ export const VISA_CATEGORIES = [
 
 export type VisaCategory = typeof VISA_CATEGORIES[number] | string;
 
+export interface VisaGroupMember {
+  id: string;
+  lastName: string;
+  firstName: string;
+  passportNo: string;
+  passportExpiry: string; // DD/MM/YYYY
+  nationality?: string;
+  dob?: string;
+  unifiedNumber?: string;
+  icpFileNo?: string;
+  passportAttachment?: string;
+  passportFileName?: string;
+  visaAttachment?: string;
+  visaFileName?: string;
+}
+
 export interface VisaFollowup {
   id: string;
   submissionDate: string;
@@ -156,6 +172,17 @@ export interface VisaFollowup {
   lastCheckedAt?: string; // e.g. "08/08/2026 14:30"
   autoCheckEnabled?: boolean;
   createdAt: string;
+
+  // Group Visa Application
+  isGroup?: boolean; // True if this visa application was submitted as part of a group
+  groupName?: string; // e.g. "Al-Noor Umrah Group" or "Silva Family Tour"
+  groupId?: string; // Shared unique group identifier linking all members
+  groupSize?: number; // Total number of applicants in this group
+  groupMemberIndex?: number; // 1-based index (e.g. Applicant 1 of 5)
+  groupMembers?: VisaGroupMember[]; // List of all applicants in this group
+  pricingMode?: 'total' | 'per_pax'; // Mode of pricing calculation
+  costPerPax?: number;
+  sellingPerPax?: number;
 }
 
 export interface ActivityComment {

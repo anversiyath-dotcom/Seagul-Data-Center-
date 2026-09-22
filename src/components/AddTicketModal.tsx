@@ -4,8 +4,11 @@ import {
   X, Plus, Plane, DollarSign, Building2, User, Calendar, MapPin, Luggage, 
   AlertTriangle, ExternalLink, Edit3, Save, Upload, FileText, Sparkles, 
   CheckCircle2, Trash2, Loader2, Paperclip, Image as ImageIcon, Clock,
-  Users, TrendingUp, TrendingDown, Calculator, Check, ArrowRight, Copy, ClipboardList
+  Users, TrendingUp, TrendingDown, Calculator, Check, ArrowRight, Copy, ClipboardList,
+  Link, Globe
 } from 'lucide-react';
+import { normalizeGitHubUrl } from '../utils/imageUrlHelpers';
+import { isPaidPaymentStatus, isPartialPaymentStatus, isUnpaidPaymentStatus } from '../utils/paymentUtils';
 
 interface AddTicketModalProps {
   isOpen: boolean;
@@ -81,6 +84,8 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
   const [ticketFileName, setTicketFileName] = useState<string | undefined>(editingTicket?.ticketFileName);
   const [isScanningTicket, setIsScanningTicket] = useState(false);
   const [scanStatus, setScanStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [ticketSourceType, setTicketSourceType] = useState<'file' | 'link'>('file');
+  const [ticketLinkUrl, setTicketLinkUrl] = useState('');
 
   const ticketFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -118,7 +123,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
       setCostPerPax(editingTicket.costPerPax !== undefined ? String(editingTicket.costPerPax) : cPrice);
       setSellingPerPax(editingTicket.sellingPerPax !== undefined ? String(editingTicket.sellingPerPax) : sPrice);
       setCurrency(editingTicket.currency || 'LKR');
-      setPaymentStatus(editingTicket.paymentStatus || 'Pending');
+      setPaymentStatus(editingTicket.paymentStatus ? (isPaidPaymentStatus(editingTicket.paymentStatus) ? 'Paid' : isPartialPaymentStatus(editingTicket.paymentStatus) ? 'Partially Paid' : 'Pending') : 'Pending');
 
       setRefundReason(editingTicket.refundReason || 'New Flight Ticket Issued');
       setComment(editingTicket.comment || '');
@@ -197,6 +202,104 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
     setIsScanningTicket(false);
   }, [editingTicket, isOpen]);
 
+  const applyParsedTicketData = (data: any) => {
+    const {
+      tickets: extractedTickets,
+      pnr: extractedPnr,
+      travelerName: extractedTraveler,
+      travelersList: extractedTravelersList,
+      airline: extractedAirline,
+      flightNo: extractedFlight,
+      returnFlightNo: extractedReturnFlight,
+      departureTime: extractedDepTime,
+      arrivalTime: extractedArrTime,
+      returnDepartureTime: extractedReturnDepTime,
+      returnArrivalTime: extractedReturnArrTime,
+      departureLocation: extractedDep,
+      arrivalLocation: extractedArr,
+      flyDate: extractedFlyDate,
+      returnDate: extractedReturnDate,
+      tripType: extractedTripType,
+      cabinClass: extractedCabin,
+      baggageAllowance: extractedBaggage,
+      totalAmount: extractedTotal,
+      costPrice: extractedCost,
+      sellingPrice: extractedSelling,
+      supplier: extractedSupplier,
+      reissueCategory: extractedReissueCat,
+      isGroupBooking: extractedGroupBooking,
+      groupName: extractedGroupName,
+      groupSize: extractedGroupSize
+    } = data;
+
+    const isGroup = Boolean(extractedGroupBooking || (Array.isArray(extractedTickets) && extractedTickets.length > 1) || (Array.isArray(extractedTravelersList) && extractedTravelersList.length > 1));
+
+    if (Array.isArray(extractedTickets) && extractedTickets.length > 0) {
+      setTicketNumbersText(extractedTickets.join('\n'));
+    }
+    if (isGroup) {
+      setIsGroupBooking(true);
+      if (extractedGroupName) setGroupName(extractedGroupName);
+    }
+    if (extractedPnr) setPnr(extractedPnr.toUpperCase());
+    if (extractedTraveler) setTravelerName(extractedTraveler.toUpperCase());
+    if (extractedAirline) setAirline(extractedAirline);
+    if (extractedFlight) setFlightNo(extractedFlight.toUpperCase());
+    if (extractedReturnFlight) setReturnFlightNo(extractedReturnFlight.toUpperCase());
+    if (extractedDepTime) setDepartureTime(extractedDepTime);
+    if (extractedArrTime) setArrivalTime(extractedArrTime);
+    if (extractedReturnDepTime) setReturnDepartureTime(extractedReturnDepTime);
+    if (extractedReturnArrTime) setReturnArrivalTime(extractedReturnArrTime);
+    if (extractedDep) setDepartureLocation(extractedDep);
+    if (extractedArr) setArrivalLocation(extractedArr);
+    if (extractedFlyDate) setFlyDate(extractedFlyDate);
+    if (extractedReturnDate && extractedReturnDate !== 'N/A') setReturnDate(extractedReturnDate);
+    if (extractedTripType) setTripType(extractedTripType as any);
+    if (extractedCabin) setCabinClass(extractedCabin as any);
+    if (extractedBaggage) setBaggageAllowance(extractedBaggage);
+
+    // Pricing extraction
+    const finalSell = extractedSelling || extractedTotal || 0;
+    if (finalSell > 0) {
+      setSellingPrice(String(finalSell));
+      setTotalRefundable(String(finalSell));
+      setSellingPerPax(String(finalSell));
+    }
+    if (extractedCost && extractedCost > 0) {
+      setCostPrice(String(extractedCost));
+      setCostPerPax(String(extractedCost));
+    }
+
+    // Build group travelers if multiple detected
+    if (Array.isArray(extractedTravelersList) && extractedTravelersList.length > 0) {
+      const trvs = extractedTravelersList.map((name: string, i: number) => ({
+        id: `trv-${Date.now()}-${i}`,
+        name: name.toUpperCase(),
+        ticketNo: (extractedTickets && extractedTickets[i]) ? extractedTickets[i] : ''
+      }));
+      setGroupTravelers(trvs);
+      setGroupSize(trvs.length);
+    } else if (Array.isArray(extractedTickets) && extractedTickets.length > 1) {
+      const trvs = extractedTickets.map((tNo: string, i: number) => ({
+        id: `trv-${Date.now()}-${i}`,
+        name: i === 0 && extractedTraveler ? extractedTraveler.toUpperCase() : `PASSENGER ${i + 1}`,
+        ticketNo: tNo
+      }));
+      setGroupTravelers(trvs);
+      setGroupSize(trvs.length);
+    }
+
+    if (extractedSupplier) setSupplier(extractedSupplier);
+    if (extractedReissueCat) setReissueCategory(extractedReissueCat);
+
+    setScanStatus({
+      type: 'success',
+      message: isGroup
+        ? `✨ AI Extraction Complete: Group booking detected with shared PNR (${extractedTickets?.length || extractedTravelersList?.length || 2} passengers)!`
+        : '✨ Air ticket AI extraction completed successfully! Flight and ticket details populated.'
+    });
+  };
+
   const handleTicketFileUpload = async (file: File) => {
     if (!file) return;
 
@@ -225,101 +328,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
         const result = await response.json();
 
         if (result.success && result.data) {
-          const {
-            tickets: extractedTickets,
-            pnr: extractedPnr,
-            travelerName: extractedTraveler,
-            travelersList: extractedTravelersList,
-            airline: extractedAirline,
-            flightNo: extractedFlight,
-            returnFlightNo: extractedReturnFlight,
-            departureTime: extractedDepTime,
-            arrivalTime: extractedArrTime,
-            returnDepartureTime: extractedReturnDepTime,
-            returnArrivalTime: extractedReturnArrTime,
-            departureLocation: extractedDep,
-            arrivalLocation: extractedArr,
-            flyDate: extractedFlyDate,
-            returnDate: extractedReturnDate,
-            tripType: extractedTripType,
-            cabinClass: extractedCabin,
-            baggageAllowance: extractedBaggage,
-            totalAmount: extractedTotal,
-            costPrice: extractedCost,
-            sellingPrice: extractedSelling,
-            supplier: extractedSupplier,
-            reissueCategory: extractedReissueCat,
-            isGroupBooking: extractedGroupBooking,
-            groupName: extractedGroupName,
-            groupSize: extractedGroupSize
-          } = result.data;
-
-          const isGroup = Boolean(extractedGroupBooking || (Array.isArray(extractedTickets) && extractedTickets.length > 1) || (Array.isArray(extractedTravelersList) && extractedTravelersList.length > 1));
-
-          if (Array.isArray(extractedTickets) && extractedTickets.length > 0) {
-            setTicketNumbersText(extractedTickets.join('\n'));
-          }
-          if (isGroup) {
-            setIsGroupBooking(true);
-            if (extractedGroupName) setGroupName(extractedGroupName);
-          }
-          if (extractedPnr) setPnr(extractedPnr.toUpperCase());
-          if (extractedTraveler) setTravelerName(extractedTraveler.toUpperCase());
-          if (extractedAirline) setAirline(extractedAirline);
-          if (extractedFlight) setFlightNo(extractedFlight.toUpperCase());
-          if (extractedReturnFlight) setReturnFlightNo(extractedReturnFlight.toUpperCase());
-          if (extractedDepTime) setDepartureTime(extractedDepTime);
-          if (extractedArrTime) setArrivalTime(extractedArrTime);
-          if (extractedReturnDepTime) setReturnDepartureTime(extractedReturnDepTime);
-          if (extractedReturnArrTime) setReturnArrivalTime(extractedReturnArrTime);
-          if (extractedDep) setDepartureLocation(extractedDep);
-          if (extractedArr) setArrivalLocation(extractedArr);
-          if (extractedFlyDate) setFlyDate(extractedFlyDate);
-          if (extractedReturnDate && extractedReturnDate !== 'N/A') setReturnDate(extractedReturnDate);
-          if (extractedTripType) setTripType(extractedTripType as any);
-          if (extractedCabin) setCabinClass(extractedCabin as any);
-          if (extractedBaggage) setBaggageAllowance(extractedBaggage);
-
-          // Pricing extraction
-          const finalSell = extractedSelling || extractedTotal || 0;
-          if (finalSell > 0) {
-            setSellingPrice(String(finalSell));
-            setTotalRefundable(String(finalSell));
-            setSellingPerPax(String(finalSell));
-          }
-          if (extractedCost && extractedCost > 0) {
-            setCostPrice(String(extractedCost));
-            setCostPerPax(String(extractedCost));
-          }
-
-          // Build group travelers if multiple detected
-          if (Array.isArray(extractedTravelersList) && extractedTravelersList.length > 0) {
-            const trvs = extractedTravelersList.map((name: string, i: number) => ({
-              id: `trv-${Date.now()}-${i}`,
-              name: name.toUpperCase(),
-              ticketNo: (extractedTickets && extractedTickets[i]) ? extractedTickets[i] : ''
-            }));
-            setGroupTravelers(trvs);
-            setGroupSize(trvs.length);
-          } else if (Array.isArray(extractedTickets) && extractedTickets.length > 1) {
-            const trvs = extractedTickets.map((tNo: string, i: number) => ({
-              id: `trv-${Date.now()}-${i}`,
-              name: i === 0 && extractedTraveler ? extractedTraveler.toUpperCase() : `PASSENGER ${i + 1}`,
-              ticketNo: tNo
-            }));
-            setGroupTravelers(trvs);
-            setGroupSize(trvs.length);
-          }
-
-          if (extractedSupplier) setSupplier(extractedSupplier);
-          if (extractedReissueCat) setReissueCategory(extractedReissueCat);
-
-          setScanStatus({
-            type: 'success',
-            message: isGroup
-              ? `✨ AI Extraction Complete: Group booking detected with shared PNR (${extractedTickets?.length || extractedTravelersList?.length || 2} passengers)!`
-              : '✨ Air ticket AI extraction completed successfully! Flight and ticket details populated.'
-          });
+          applyParsedTicketData(result.data);
         } else {
           setScanStatus({
             type: 'error',
@@ -338,6 +347,83 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
     };
 
     reader.readAsDataURL(file);
+  };
+
+  const handleScanTicketFromUrl = async () => {
+    const rawUrl = ticketLinkUrl.trim();
+    if (!rawUrl) {
+      setScanStatus({
+        type: 'error',
+        message: 'Please paste a valid GitHub ticket document link or image URL.'
+      });
+      return;
+    }
+
+    const normalized = normalizeGitHubUrl(rawUrl);
+    const fileName = rawUrl.split('/').pop()?.split('?')[0] || 'ticket_document_github.jpg';
+
+    setIsScanningTicket(true);
+    setScanStatus(null);
+
+    try {
+      const response = await fetch('/api/parse-ticket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: normalized }),
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.data) {
+        if (result.imageAttachment) {
+          setTicketAttachment(result.imageAttachment);
+          setTicketFileName(fileName);
+        }
+        applyParsedTicketData(result.data);
+      } else if (result.imageAttachment) {
+        setTicketAttachment(result.imageAttachment);
+        setTicketFileName(fileName);
+        setScanStatus({
+          type: 'error',
+          message: result.error || 'Ticket document attached from GitHub! Please review details.'
+        });
+      } else {
+        // Fallback: direct client fetch
+        try {
+          const directRes = await fetch(normalized);
+          if (directRes.ok) {
+            const blob = await directRes.blob();
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const dataUrl = e.target?.result as string;
+              setTicketAttachment(dataUrl);
+              setTicketFileName(fileName);
+            };
+            reader.readAsDataURL(blob);
+            setScanStatus({
+              type: 'error',
+              message: 'Ticket document retrieved and attached from GitHub link! Please enter ticket details manually.'
+            });
+            return;
+          }
+        } catch (cErr) {
+          console.warn('Ticket client fetch error:', cErr);
+        }
+
+        setScanStatus({
+          type: 'error',
+          message: result.error || 'Could not scan ticket from GitHub link. Verify that the URL is publicly accessible.'
+        });
+      }
+    } catch (err: any) {
+      console.error('Ticket link scan error:', err);
+      setScanStatus({
+        type: 'error',
+        message: 'Could not connect to ticket scanner. Please verify the URL or upload the file directly.'
+      });
+    } finally {
+      setIsScanningTicket(false);
+    }
   };
 
   // Group passenger row helpers
@@ -622,7 +708,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
         costPerPax: finalCostPax,
         sellingPerPax: finalSellingPax,
         profitPerPax: finalProfitPax,
-        paymentStatus: paymentStatus,
+        paymentStatus: isPaidPaymentStatus(paymentStatus) ? 'Paid' : isPartialPaymentStatus(paymentStatus) ? 'Partially Paid' : paymentStatus === 'Unpaid' ? 'Unpaid' : 'Pending',
         currency: currency
       };
       onUpdateTicket(updatedTicket);
@@ -687,7 +773,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
         costPerPax: finalCostPax,
         sellingPerPax: finalSellingPax,
         profitPerPax: finalProfitPax,
-        paymentStatus: paymentStatus
+        paymentStatus: isPaidPaymentStatus(paymentStatus) ? 'Paid' : isPartialPaymentStatus(paymentStatus) ? 'Partially Paid' : paymentStatus === 'Unpaid' ? 'Unpaid' : 'Pending'
       };
       onAddTicket(newTicket);
     }
@@ -858,41 +944,108 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
               }}
             />
 
-            {!ticketAttachment ? (
-              <div
-                onClick={() => ticketFileInputRef.current?.click()}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const file = e.dataTransfer.files?.[0];
-                  if (file) handleTicketFileUpload(file);
-                }}
-                className="border-2 border-dashed border-blue-400/50 hover:border-blue-300 bg-blue-950/40 hover:bg-blue-950/60 p-4 rounded-xl text-center cursor-pointer transition-all flex flex-col items-center justify-center space-y-1.5 group"
-              >
-                {isScanningTicket ? (
-                  <div className="flex flex-col items-center space-y-2 py-2">
-                    <Loader2 className="w-7 h-7 text-amber-300 animate-spin" />
-                    <span className="text-xs font-bold text-amber-200">
-                      Reading Air Ticket Document with AI OCR...
-                    </span>
-                    <span className="text-[10px] text-blue-300">
-                      Extracting PNR, ticket numbers, passenger details, flights & route
-                    </span>
-                  </div>
-                ) : (
-                  <>
-                    <div className="p-2 bg-blue-800/50 rounded-full text-blue-200 group-hover:bg-blue-700/60 group-hover:scale-105 transition-all">
-                      <Upload className="w-5 h-5" />
-                    </div>
-                    <div className="text-xs font-bold text-white">
-                      Click to Browse or Drag & Drop E-Ticket PDF / Image
-                    </div>
-                    <div className="text-[10px] text-blue-300 font-medium">
-                      Supports JPG, PNG, WEBP & PDF files
-                    </div>
-                  </>
-                )}
+            {!ticketAttachment && (
+              <div className="flex bg-slate-900/80 p-0.5 rounded-lg text-xs font-bold border border-slate-700/60 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setTicketSourceType('file')}
+                  className={`flex-1 py-1.5 rounded-md transition-colors flex items-center justify-center space-x-1.5 cursor-pointer ${
+                    ticketSourceType === 'file' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Upload File</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTicketSourceType('link')}
+                  className={`flex-1 py-1.5 rounded-md transition-colors flex items-center justify-center space-x-1.5 cursor-pointer ${
+                    ticketSourceType === 'link' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Link className="w-3.5 h-3.5" />
+                  <span>GitHub / Web Link</span>
+                </button>
               </div>
+            )}
+
+            {!ticketAttachment ? (
+              ticketSourceType === 'file' ? (
+                <div
+                  onClick={() => ticketFileInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) handleTicketFileUpload(file);
+                  }}
+                  className="border-2 border-dashed border-blue-400/50 hover:border-blue-300 bg-blue-950/40 hover:bg-blue-950/60 p-4 rounded-xl text-center cursor-pointer transition-all flex flex-col items-center justify-center space-y-1.5 group"
+                >
+                  {isScanningTicket ? (
+                    <div className="flex flex-col items-center space-y-2 py-2">
+                      <Loader2 className="w-7 h-7 text-amber-300 animate-spin" />
+                      <span className="text-xs font-bold text-amber-200">
+                        Reading Air Ticket Document with AI OCR...
+                      </span>
+                      <span className="text-[10px] text-blue-300">
+                        Extracting PNR, ticket numbers, passenger details, flights & route
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="p-2 bg-blue-800/50 rounded-full text-blue-200 group-hover:bg-blue-700/60 group-hover:scale-105 transition-all">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                      <div className="text-xs font-bold text-white">
+                        Click to Browse or Drag & Drop E-Ticket PDF / Image
+                      </div>
+                      <div className="text-[10px] text-blue-300 font-medium">
+                        Supports JPG, PNG, WEBP & PDF files
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-blue-950/50 border border-blue-500/40 p-3 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-blue-200 flex items-center space-x-1.5">
+                      <Globe className="w-4 h-4 text-blue-400" />
+                      <span>Scan from GitHub Link or Direct Image URL:</span>
+                    </label>
+                  </div>
+                  <div className="flex space-x-2">
+                    <input
+                      type="url"
+                      value={ticketLinkUrl}
+                      onChange={(e) => setTicketLinkUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleScanTicketFromUrl();
+                        }
+                      }}
+                      placeholder="https://github.com/.../ticket.jpg"
+                      className="flex-1 min-w-0 bg-slate-900 border border-blue-500/50 rounded-lg px-3 py-2 text-xs font-mono text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleScanTicketFromUrl()}
+                      disabled={isScanningTicket || !ticketLinkUrl.trim()}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg flex items-center space-x-1.5 cursor-pointer shrink-0 transition-colors shadow-sm"
+                    >
+                      {isScanningTicket ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-amber-300" />
+                      ) : (
+                        <Sparkles className="w-4 h-4 text-amber-300" />
+                      )}
+                      <span>{isScanningTicket ? 'Scanning...' : 'Scan'}</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-blue-300/80 leading-relaxed">
+                    Paste any GitHub blob, raw, commit or file link of the e-ticket or boarding pass.
+                  </p>
+                </div>
+              )
             ) : (
               <div className="bg-slate-900/90 p-3 rounded-xl border border-blue-500/40 flex items-center justify-between gap-3">
                 <div className="flex items-center space-x-3 overflow-hidden">
@@ -1491,18 +1644,20 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
                 </div>
 
                 <select
-                  value={paymentStatus}
+                  value={isPaidPaymentStatus(paymentStatus) ? 'Paid' : isPartialPaymentStatus(paymentStatus) ? 'Partially Paid' : paymentStatus === 'Unpaid' ? 'Unpaid' : 'Pending'}
                   onChange={(e) => setPaymentStatus(e.target.value as any)}
                   className={`text-[10px] font-bold px-2 py-1 rounded-lg border cursor-pointer ${
-                    paymentStatus === 'Fully Paid'
+                    isPaidPaymentStatus(paymentStatus)
                       ? 'bg-emerald-900/60 border-emerald-500/50 text-emerald-300'
-                      : paymentStatus === 'Partial Paid'
+                      : isPartialPaymentStatus(paymentStatus)
                       ? 'bg-amber-900/60 border-amber-500/50 text-amber-300'
                       : 'bg-red-900/60 border-red-500/50 text-red-300'
                   }`}
+                  title="Payment Status"
                 >
-                  <option value="Fully Paid" className="bg-slate-900 text-white">Fully Paid</option>
-                  <option value="Partial Paid" className="bg-slate-900 text-white">Partial Paid</option>
+                  <option value="Paid" className="bg-slate-900 text-white">✓ Paid / Fully Paid</option>
+                  <option value="Partially Paid" className="bg-slate-900 text-white">⚡ Partially Paid</option>
+                  <option value="Pending" className="bg-slate-900 text-white">⏳ Pending / Outstanding</option>
                   <option value="Unpaid" className="bg-slate-900 text-white">Unpaid</option>
                 </select>
               </div>

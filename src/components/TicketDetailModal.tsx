@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { formatLKR } from '../utils/helpers';
 import { TicketLetterheadPrint } from './TicketLetterheadPrint';
+import { isPaidPaymentStatus, isPartialPaymentStatus, isUnpaidPaymentStatus } from '../utils/paymentUtils';
 
 interface TicketDetailModalProps {
   ticket: TicketFollowup | null;
@@ -15,6 +16,7 @@ interface TicketDetailModalProps {
   onUpdateTicket: (updated: TicketFollowup) => void;
   onEditTicket?: (ticket: TicketFollowup) => void;
   onDeleteTicket?: (id: string) => void;
+  onUpdatePaymentStatus?: (id: string, paymentStatus: any) => void;
   companyProfile?: CompanyProfile;
 }
 
@@ -24,6 +26,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
   onUpdateTicket,
   onEditTicket,
   onDeleteTicket,
+  onUpdatePaymentStatus,
   companyProfile
 }) => {
   const [activeTab, setActiveTab] = useState<'details' | 'letterhead'>('details');
@@ -889,26 +892,54 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                 </div>
 
                 {/* FINANCIALS & PROFIT BREAKDOWN CARD */}
-                {(ticket.costPrice !== undefined || ticket.sellingPrice !== undefined || ticket.profit !== undefined) && (
+                {(ticket.costPrice !== undefined || ticket.sellingPrice !== undefined || ticket.profit !== undefined || ticket.paymentStatus !== undefined) && (
                   <div className="bg-slate-900 text-white p-4 rounded-xl border border-slate-800 space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
                       <div className="flex items-center space-x-2">
                         <Calculator className="w-4 h-4 text-emerald-400" />
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
                           FINANCIALS & PROFIT CALCULATION
                         </span>
                       </div>
-                      {ticket.paymentStatus && (
-                        <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${
-                          ticket.paymentStatus === 'Fully Paid'
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                            : ticket.paymentStatus === 'Partial Paid'
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                            : 'bg-red-500/20 text-red-300 border border-red-500/40'
-                        }`}>
-                          {ticket.paymentStatus}
-                        </span>
-                      )}
+
+                      <div className="flex items-center space-x-2">
+                        <select
+                          value={isPaidPaymentStatus(ticket.paymentStatus) ? 'Paid' : isPartialPaymentStatus(ticket.paymentStatus) ? 'Partially Paid' : 'Pending'}
+                          onChange={(e) => {
+                            const newStatus = e.target.value as any;
+                            const updated = { ...ticket, paymentStatus: newStatus };
+                            onUpdateTicket(updated);
+                            if (onUpdatePaymentStatus) onUpdatePaymentStatus(ticket.id, newStatus);
+                          }}
+                          className={`text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider border cursor-pointer ${
+                            isPaidPaymentStatus(ticket.paymentStatus)
+                              ? 'bg-emerald-900/60 text-emerald-300 border-emerald-500/50'
+                              : isPartialPaymentStatus(ticket.paymentStatus)
+                              ? 'bg-amber-900/60 text-amber-300 border-amber-500/50'
+                              : 'bg-red-900/60 text-red-300 border-red-500/50'
+                          }`}
+                          title="Ticket Payment Settlement Status"
+                        >
+                          <option value="Paid" className="bg-slate-900 text-emerald-400 font-bold">✓ Paid (Settled)</option>
+                          <option value="Partially Paid" className="bg-slate-900 text-amber-400 font-bold">⚡ Partial Paid</option>
+                          <option value="Pending" className="bg-slate-900 text-red-400 font-bold">⏳ Pending / Outstanding</option>
+                        </select>
+
+                        {!isPaidPaymentStatus(ticket.paymentStatus) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = { ...ticket, paymentStatus: 'Paid' as any };
+                              onUpdateTicket(updated);
+                              if (onUpdatePaymentStatus) onUpdatePaymentStatus(ticket.id, 'Paid');
+                            }}
+                            className="text-[10px] font-bold px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors cursor-pointer shadow-sm"
+                            title="Quick mark as Paid"
+                          >
+                            Mark Paid
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-3 gap-2.5">

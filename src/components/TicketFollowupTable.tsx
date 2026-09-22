@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { getTicketStatusBadgeClass } from '../utils/helpers';
 import { isDateInRange, getDateRangePreset, DatePreset } from '../utils/dateUtils';
+import { isPaidPaymentStatus, isPartialPaymentStatus, isUnpaidPaymentStatus } from '../utils/paymentUtils';
 
 interface TicketFollowupTableProps {
   tickets: TicketFollowup[];
@@ -19,6 +20,7 @@ interface TicketFollowupTableProps {
   onEditTicket?: (ticket: TicketFollowup) => void;
   onDeleteTicket: (id: string) => void;
   onUpdateStatus: (id: string, newStatus: TicketStatus) => void;
+  onUpdatePaymentStatus?: (id: string, paymentStatus: any) => void;
   commentsCountMap: Record<string, number>;
 }
 
@@ -33,6 +35,7 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
   onEditTicket,
   onDeleteTicket,
   onUpdateStatus,
+  onUpdatePaymentStatus,
   commentsCountMap
 }) => {
   const [selectedAgencyFilter, setSelectedAgencyFilter] = useState<string>('ALL');
@@ -474,19 +477,38 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
             </div>
           )}
 
-          {item.paymentStatus && (
-            <div className="pt-0.5">
+          <div className="pt-1 flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
+            {onUpdatePaymentStatus ? (
+              <select
+                value={isPaidPaymentStatus(item.paymentStatus) ? 'Paid' : isPartialPaymentStatus(item.paymentStatus) ? 'Partially Paid' : 'Pending'}
+                onChange={(e) => {
+                  if (onUpdatePaymentStatus) onUpdatePaymentStatus(item.id, e.target.value as any);
+                }}
+                className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase border cursor-pointer ${
+                  isPaidPaymentStatus(item.paymentStatus)
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : isPartialPaymentStatus(item.paymentStatus)
+                    ? 'bg-amber-100 text-amber-800 border-amber-300'
+                    : 'bg-red-100 text-red-800 border-red-300'
+                }`}
+                title="Air Ticket Payment Settlement Status"
+              >
+                <option value="Paid">✓ Paid</option>
+                <option value="Partially Paid">⚡ Partial</option>
+                <option value="Pending">⏳ Pending / Unpaid</option>
+              </select>
+            ) : (
               <span className={`text-[8px] font-extrabold px-1.5 py-0.2 rounded uppercase ${
-                item.paymentStatus === 'Fully Paid' 
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                  : item.paymentStatus === 'Partial Paid'
+                isPaidPaymentStatus(item.paymentStatus)
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : isPartialPaymentStatus(item.paymentStatus)
                   ? 'bg-amber-50 text-amber-700 border border-amber-200'
                   : 'bg-red-50 text-red-700 border border-red-200'
               }`}>
-                {item.paymentStatus}
+                {item.paymentStatus || 'Pending'}
               </span>
-            </div>
-          )}
+            )}
+          </div>
         </td>
 
         {/* Actions Column */}

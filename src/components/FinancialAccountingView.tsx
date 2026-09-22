@@ -18,6 +18,13 @@ import {
   formatDateToYYYYMMDD,
   parseFlexibleDate
 } from '../utils/dateUtils';
+import {
+  isPaidPaymentStatus,
+  isPartialPaymentStatus,
+  isUnpaidPaymentStatus,
+  normalizePaymentStatus,
+  getPaymentStatusBadgeClass
+} from '../utils/paymentUtils';
 
 interface FinancialAccountingViewProps {
   tickets: TicketFollowup[];
@@ -26,6 +33,8 @@ interface FinancialAccountingViewProps {
   onOpenTicketDetails?: (ticket: TicketFollowup) => void;
   onOpenVisaDetails?: (visa: VisaFollowup) => void;
   onNavigateTab?: (tab: 'dashboard' | 'tickets' | 'visas' | 'accounting') => void;
+  onUpdateTicketPaymentStatus?: (id: string, paymentStatus: any) => void;
+  onUpdateVisaPaymentStatus?: (id: string, paymentStatus: any) => void;
 }
 
 export type SectorFilter = 'ALL' | 'TICKETS' | 'VISAS' | 'GROUPS';
@@ -62,7 +71,9 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
   companyProfile,
   onOpenTicketDetails,
   onOpenVisaDetails,
-  onNavigateTab
+  onNavigateTab,
+  onUpdateTicketPaymentStatus,
+  onUpdateVisaPaymentStatus
 }) => {
   // Navigation tabs inside Accounting
   const [activeAccountingTab, setActiveAccountingTab] = useState<AccountingTab>('ledger');
@@ -166,7 +177,7 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
         sellingPrice: selling,
         netProfit: profit,
         profitMargin: margin,
-        paymentStatus: t.paymentStatus || 'Unpaid',
+        paymentStatus: t.paymentStatus ? (isPaidPaymentStatus(t.paymentStatus) ? 'Paid' : isPartialPaymentStatus(t.paymentStatus) ? 'Partially Paid' : 'Pending') : 'Pending',
         currency: t.currency || 'LKR',
         isGroup: !!t.isGroupBooking,
         groupName: t.groupName,
@@ -205,7 +216,7 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
         sellingPrice: selling,
         netProfit: profit,
         profitMargin: margin,
-        paymentStatus: v.paymentStatus || 'Pending',
+        paymentStatus: v.paymentStatus ? (isPaidPaymentStatus(v.paymentStatus) ? 'Paid' : isPartialPaymentStatus(v.paymentStatus) ? 'Partially Paid' : 'Pending') : 'Pending',
         currency: v.currency || 'AED',
         rawVisa: v
       });
@@ -257,9 +268,9 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
 
       // 5. Payment Status Filter
       if (selectedPaymentStatus !== 'ALL') {
-        const isPaid = item.paymentStatus === 'Paid' || item.paymentStatus === 'Fully Paid';
-        const isPartial = item.paymentStatus === 'Partially Paid' || item.paymentStatus === 'Partial Paid';
-        const isUnpaid = item.paymentStatus === 'Pending' || item.paymentStatus === 'Unpaid';
+        const isPaid = isPaidPaymentStatus(item.paymentStatus);
+        const isPartial = isPartialPaymentStatus(item.paymentStatus);
+        const isUnpaid = isUnpaidPaymentStatus(item.paymentStatus);
 
         if (selectedPaymentStatus === 'Paid' && !isPaid) return false;
         if (selectedPaymentStatus === 'Partial' && !isPartial) return false;
@@ -310,8 +321,8 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
       totalCost += item.costPrice;
       totalProfit += item.netProfit;
 
-      const isPaid = item.paymentStatus === 'Paid' || item.paymentStatus === 'Fully Paid';
-      const isPartial = item.paymentStatus === 'Partially Paid' || item.paymentStatus === 'Partial Paid';
+      const isPaid = isPaidPaymentStatus(item.paymentStatus);
+      const isPartial = isPartialPaymentStatus(item.paymentStatus);
 
       if (isPaid) {
         collectedAmount += item.sellingPrice;
@@ -399,9 +410,10 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
       map[key].cost += item.costPrice;
       map[key].profit += item.netProfit;
 
-      const isPaid = item.paymentStatus === 'Paid' || item.paymentStatus === 'Fully Paid';
+      const isPaid = isPaidPaymentStatus(item.paymentStatus);
+      const isPartial = isPartialPaymentStatus(item.paymentStatus);
       if (!isPaid) {
-        map[key].outstanding += item.sellingPrice;
+        map[key].outstanding += isPartial ? Math.round(item.sellingPrice * 0.5) : item.sellingPrice;
       }
     });
 
@@ -989,20 +1001,46 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
                           </div>
                         </td>
 
-                        {/* Reference (PNR / Ticket / Passport) */}
-                        <td className="py-3 px-3 align-top font-mono">
+                        {/* Reference (PNR / Ticket / Passport) & Payment Status */}
+                        <td className="py-3 px-3 align-top font-mono" onClick={(e) => e.stopPropagation()}>
                           <span className="font-bold text-slate-800 text-[11px] block">
                             {item.reference}
                           </span>
-                          <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase inline-block mt-0.5 ${
-                            item.paymentStatus === 'Paid' || item.paymentStatus === 'Fully Paid'
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : item.paymentStatus === 'Partially Paid' || item.paymentStatus === 'Partial Paid'
-                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                              : 'bg-red-50 text-red-700 border border-red-200'
-                          }`}>
-                            {item.paymentStatus}
-                          </span>
+                          {(onUpdateTicketPaymentStatus || onUpdateVisaPaymentStatus) ? (
+                            <select
+                              value={isPaidPaymentStatus(item.paymentStatus) ? 'Paid' : isPartialPaymentStatus(item.paymentStatus) ? 'Partially Paid' : 'Pending'}
+                              onChange={(e) => {
+                                const newStatus = e.target.value;
+                                if (item.sourceType === 'ticket' && item.rawTicket && onUpdateTicketPaymentStatus) {
+                                  onUpdateTicketPaymentStatus(item.rawTicket.id, newStatus);
+                                } else if (item.sourceType === 'visa' && item.rawVisa && onUpdateVisaPaymentStatus) {
+                                  onUpdateVisaPaymentStatus(item.rawVisa.id, newStatus);
+                                }
+                              }}
+                              className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase mt-1 border cursor-pointer ${
+                                isPaidPaymentStatus(item.paymentStatus)
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                  : isPartialPaymentStatus(item.paymentStatus)
+                                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                  : 'bg-red-50 text-red-800 border-red-300'
+                              }`}
+                              title="Update Settlement / Payment Status"
+                            >
+                              <option value="Paid">✓ Paid</option>
+                              <option value="Partially Paid">⚡ Partial</option>
+                              <option value="Pending">⏳ Pending</option>
+                            </select>
+                          ) : (
+                            <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase inline-block mt-0.5 ${
+                              isPaidPaymentStatus(item.paymentStatus)
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : isPartialPaymentStatus(item.paymentStatus)
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                : 'bg-red-50 text-red-700 border border-red-200'
+                            }`}>
+                              {item.paymentStatus}
+                            </span>
+                          )}
                         </td>
 
                         {/* Agency / Customer */}

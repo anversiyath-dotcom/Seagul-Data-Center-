@@ -14,6 +14,8 @@ const AIRPORT_DATABASE: Record<string, AirportInfo> = {
   DOH: { code: 'DOH', name: 'Hamad Intl Arpt', cityCountry: 'Doha, Qatar' },
   SIN: { code: 'SIN', name: 'Singapore Changi Arpt', cityCountry: 'Singapore' },
   KUL: { code: 'KUL', name: 'Kuala Lumpur Intl Arpt', cityCountry: 'Kuala Lumpur, Malaysia' },
+  CGK: { code: 'CGK', name: 'Soekarno-Hatta Intl Arpt', cityCountry: 'Jakarta, Indonesia' },
+  DPS: { code: 'DPS', name: 'I Gusti Ngurah Rai Intl Arpt', cityCountry: 'Bali, Indonesia' },
   BKK: { code: 'BKK', name: 'Suvarnabhumi Arpt', cityCountry: 'Bangkok, Thailand' },
   DMK: { code: 'DMK', name: 'Don Mueang Intl Arpt', cityCountry: 'Bangkok, Thailand' },
   LHR: { code: 'LHR', name: 'Heathrow Arpt', cityCountry: 'London, United Kingdom' },

@@ -1,12 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { VisaFollowup, VisaStatus, CustomerType, VisaPaymentStatus, VISA_CATEGORIES } from '../types';
-import { X, FileText, Upload, Sparkles, Loader2, CheckCircle2, AlertCircle, Trash2, Eye, Calendar, Building2, User, AlertTriangle, ExternalLink, DollarSign, Wallet, Check, Clock, TrendingUp, Tag, Percent } from 'lucide-react';
+import { VisaFollowup, VisaStatus, CustomerType, VisaPaymentStatus, VISA_CATEGORIES, VisaGroupMember } from '../types';
+import { X, FileText, Upload, Sparkles, Loader2, CheckCircle2, AlertCircle, Trash2, Eye, Calendar, Building2, User, AlertTriangle, ExternalLink, DollarSign, Wallet, Check, Clock, TrendingUp, Tag, Percent, Link, ScanLine, Globe, Users, Plus, ClipboardList } from 'lucide-react';
 import { calculateVisaExpiryDate, getVisaDurationDays } from '../utils/helpers';
+import { normalizeGitHubUrl, isValidUrl, parsePassportMRZ } from '../utils/imageUrlHelpers';
+import { GroupVisaApplicantsSection } from './GroupVisaApplicantsSection';
+import { BulkPasteVisaModal, GroupApplicantItem } from './BulkPasteVisaModal';
 
 interface AddVisaModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddVisa: (visa: VisaFollowup) => void;
+  onAddBatchVisas?: (visas: VisaFollowup[]) => void;
   editingVisa?: VisaFollowup | null;
   onUpdateVisa?: (visa: VisaFollowup) => void;
   recordedAgencies?: string[];
@@ -18,6 +22,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
   isOpen,
   onClose,
   onAddVisa,
+  onAddBatchVisas,
   editingVisa,
   onUpdateVisa,
   recordedAgencies,
@@ -57,42 +62,137 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
   const [overrideDuplicate, setOverrideDuplicate] = useState(false);
   const [showDuplicateError, setShowDuplicateError] = useState(false);
 
+  // Group Visa States
+  const [isGroup, setIsGroup] = useState<boolean>(editingVisa?.isGroup || false);
+  const [groupName, setGroupName] = useState<string>(editingVisa?.groupName || '');
+  const [pricingMode, setPricingMode] = useState<'total' | 'per_pax'>(editingVisa?.pricingMode || 'per_pax');
+  const [costPerPax, setCostPerPax] = useState<string>(
+    editingVisa?.costPerPax !== undefined
+      ? String(editingVisa.costPerPax)
+      : editingVisa?.purchasingPrice !== undefined
+      ? String(editingVisa.purchasingPrice)
+      : '350'
+  );
+  const [sellingPerPax, setSellingPerPax] = useState<string>(
+    editingVisa?.sellingPerPax !== undefined
+      ? String(editingVisa.sellingPerPax)
+      : editingVisa?.sellingPrice !== undefined
+      ? String(editingVisa.sellingPrice)
+      : '450'
+  );
+
+  const [groupApplicants, setGroupApplicants] = useState<GroupApplicantItem[]>([
+    {
+      id: `app-${Date.now()}-1`,
+      lastName: editingVisa?.lastName || '',
+      firstName: editingVisa?.firstName || '',
+      passportNo: editingVisa?.passportNo || '',
+      passportExpiry: editingVisa?.passportExpiry || '',
+      nationality: editingVisa?.nationality || 'SRI LANKAN',
+      dob: editingVisa?.dob || '',
+      unifiedNumber: editingVisa?.unifiedNumber || '',
+      icpFileNo: editingVisa?.icpFileNo || '',
+    },
+    {
+      id: `app-${Date.now()}-2`,
+      lastName: '',
+      firstName: '',
+      passportNo: '',
+      passportExpiry: '',
+      nationality: 'SRI LANKAN',
+      dob: '',
+      unifiedNumber: '',
+      icpFileNo: '',
+    },
+  ]);
+
+  const [showBulkPasteModal, setShowBulkPasteModal] = useState<boolean>(false);
+
+  const handleAddApplicant = () => {
+    setGroupApplicants((prev) => [
+      ...prev,
+      {
+        id: `app-${Date.now()}-${prev.length + 1}-${Math.floor(Math.random() * 1000)}`,
+        lastName: '',
+        firstName: '',
+        passportNo: '',
+        passportExpiry: '',
+        nationality: nationality || 'SRI LANKAN',
+        dob: '',
+        unifiedNumber: '',
+        icpFileNo: '',
+      },
+    ]);
+  };
+
+  const handleRemoveApplicant = (id: string) => {
+    if (groupApplicants.length <= 1) return;
+    setGroupApplicants((prev) => prev.filter((app) => app.id !== id));
+  };
+
+  const handleUpdateApplicant = (id: string, field: keyof GroupApplicantItem, value: string) => {
+    setGroupApplicants((prev) =>
+      prev.map((app) => (app.id === id ? { ...app, [field]: value } : app))
+    );
+  };
+
   // Check for duplicate visa application entries
   const findDuplicateVisa = (): { visa: VisaFollowup; reason: string } | null => {
     if (!existingVisas || !Array.isArray(existingVisas) || existingVisas.length === 0) return null;
 
-    const cleanPass = (passportNo || '').trim().toUpperCase();
-    const cleanIcp = (icpFileNo || '').trim().toUpperCase();
-    const cleanUid = (unifiedNumber || '').trim().toUpperCase();
-    const cleanFirst = (firstName || '').trim().toUpperCase();
-    const cleanLast = (lastName || '').trim().toUpperCase();
+    if (!isGroup) {
+      const cleanPass = (passportNo || '').trim().toUpperCase();
+      const cleanIcp = (icpFileNo || '').trim().toUpperCase();
+      const cleanUid = (unifiedNumber || '').trim().toUpperCase();
+      const cleanFirst = (firstName || '').trim().toUpperCase();
+      const cleanLast = (lastName || '').trim().toUpperCase();
 
-    for (const v of existingVisas) {
-      if (!v) continue;
-      if (editingVisa && v.id === editingVisa.id) continue;
+      for (const v of existingVisas) {
+        if (!v) continue;
+        if (editingVisa && v.id === editingVisa.id) continue;
 
-      // 1. Passport Match
-      if (cleanPass.length >= 4 && (v.passportNo || '').trim().toUpperCase() === cleanPass) {
-        return { visa: v, reason: `Passport Number "${cleanPass}" is already registered` };
+        // 1. Passport Match
+        if (cleanPass.length >= 4 && (v.passportNo || '').trim().toUpperCase() === cleanPass) {
+          return { visa: v, reason: `Passport Number "${cleanPass}" is already registered` };
+        }
+
+        // 2. ICP File No Match
+        if (cleanIcp.length >= 5 && v.icpFileNo && (v.icpFileNo || '').trim().toUpperCase() === cleanIcp) {
+          return { visa: v, reason: `ICP File Number "${cleanIcp}" is already registered` };
+        }
+
+        // 3. Unified Number Match
+        if (cleanUid.length >= 5 && v.unifiedNumber && (v.unifiedNumber || '').trim().toUpperCase() === cleanUid) {
+          return { visa: v, reason: `Unified Number (UID) "${cleanUid}" is already registered` };
+        }
+
+        // 4. Full Name Match
+        if (cleanFirst.length >= 2 && cleanLast.length >= 2) {
+          if (
+            (v.firstName || '').trim().toUpperCase() === cleanFirst &&
+            (v.lastName || '').trim().toUpperCase() === cleanLast
+          ) {
+            return { visa: v, reason: `Applicant Name "${cleanFirst} ${cleanLast}" is already registered` };
+          }
+        }
       }
 
-      // 2. ICP File No Match
-      if (cleanIcp.length >= 5 && v.icpFileNo && (v.icpFileNo || '').trim().toUpperCase() === cleanIcp) {
-        return { visa: v, reason: `ICP File Number "${cleanIcp}" is already registered` };
-      }
+      return null;
+    }
 
-      // 3. Unified Number Match
-      if (cleanUid.length >= 5 && v.unifiedNumber && (v.unifiedNumber || '').trim().toUpperCase() === cleanUid) {
-        return { visa: v, reason: `Unified Number (UID) "${cleanUid}" is already registered` };
-      }
-
-      // 4. Full Name Match
-      if (cleanFirst.length >= 2 && cleanLast.length >= 2) {
-        if (
-          (v.firstName || '').trim().toUpperCase() === cleanFirst &&
-          (v.lastName || '').trim().toUpperCase() === cleanLast
-        ) {
-          return { visa: v, reason: `Applicant Name "${cleanFirst} ${cleanLast}" is already registered` };
+    // Group Mode Duplicate Check
+    for (const app of groupApplicants) {
+      const cleanPass = (app.passportNo || '').trim().toUpperCase();
+      if (cleanPass.length >= 4) {
+        for (const v of existingVisas) {
+          if (!v) continue;
+          if (editingVisa && v.id === editingVisa.id) continue;
+          if ((v.passportNo || '').trim().toUpperCase() === cleanPass) {
+            return {
+              visa: v,
+              reason: `Applicant "${app.lastName} ${app.firstName}" with Passport "${cleanPass}" is already registered in the system`,
+            };
+          }
         }
       }
     }
@@ -110,6 +210,14 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
 
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Document input tabs & URL states for GitHub and Web links
+  const [passportSourceType, setPassportSourceType] = useState<'file' | 'link' | 'mrz'>('file');
+  const [passportLinkUrl, setPassportLinkUrl] = useState('');
+  const [passportMrzText, setPassportMrzText] = useState('');
+
+  const [visaSourceType, setVisaSourceType] = useState<'file' | 'link'>('file');
+  const [visaLinkUrl, setVisaLinkUrl] = useState('');
 
   const passportInputRef = useRef<HTMLInputElement | null>(null);
   const visaInputRef = useRef<HTMLInputElement | null>(null);
@@ -146,6 +254,56 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         setOverrideDuplicate(false);
         setShowDuplicateError(false);
         setScanStatus(null);
+
+        // Group Fields
+        setIsGroup(editingVisa.isGroup || false);
+        setGroupName(editingVisa.groupName || '');
+        setPricingMode(editingVisa.pricingMode || 'per_pax');
+        setCostPerPax(
+          editingVisa.costPerPax !== undefined
+            ? String(editingVisa.costPerPax)
+            : editingVisa.purchasingPrice !== undefined
+            ? String(editingVisa.purchasingPrice)
+            : '350'
+        );
+        setSellingPerPax(
+          editingVisa.sellingPerPax !== undefined
+            ? String(editingVisa.sellingPerPax)
+            : editingVisa.sellingPrice !== undefined
+            ? String(editingVisa.sellingPrice)
+            : '450'
+        );
+        if (editingVisa.groupMembers && editingVisa.groupMembers.length > 0) {
+          setGroupApplicants(
+            editingVisa.groupMembers.map((m) => ({
+              id: m.id || `app-${Date.now()}-${Math.random()}`,
+              lastName: m.lastName,
+              firstName: m.firstName,
+              passportNo: m.passportNo,
+              passportExpiry: m.passportExpiry,
+              nationality: m.nationality || 'SRI LANKAN',
+              dob: m.dob || '',
+              unifiedNumber: m.unifiedNumber || '',
+              icpFileNo: m.icpFileNo || '',
+              passportAttachment: m.passportAttachment,
+              passportFileName: m.passportFileName,
+            }))
+          );
+        } else {
+          setGroupApplicants([
+            {
+              id: `app-${Date.now()}-1`,
+              lastName: editingVisa.lastName || '',
+              firstName: editingVisa.firstName || '',
+              passportNo: editingVisa.passportNo || '',
+              passportExpiry: editingVisa.passportExpiry || '',
+              nationality: editingVisa.nationality || 'SRI LANKAN',
+              dob: editingVisa.dob || '',
+              unifiedNumber: editingVisa.unifiedNumber || '',
+              icpFileNo: editingVisa.icpFileNo || '',
+            },
+          ]);
+        }
       } else {
         setLastName('');
         setFirstName('');
@@ -175,6 +333,37 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         setOverrideDuplicate(false);
         setShowDuplicateError(false);
         setScanStatus(null);
+
+        // Group Fields Reset
+        setIsGroup(false);
+        setGroupName('');
+        setPricingMode('per_pax');
+        setCostPerPax('350');
+        setSellingPerPax('450');
+        setGroupApplicants([
+          {
+            id: `app-${Date.now()}-1`,
+            lastName: '',
+            firstName: '',
+            passportNo: '',
+            passportExpiry: '',
+            nationality: 'SRI LANKAN',
+            dob: '',
+            unifiedNumber: '',
+            icpFileNo: '',
+          },
+          {
+            id: `app-${Date.now()}-2`,
+            lastName: '',
+            firstName: '',
+            passportNo: '',
+            passportExpiry: '',
+            nationality: 'SRI LANKAN',
+            dob: '',
+            unifiedNumber: '',
+            icpFileNo: '',
+          },
+        ]);
       }
     }
   }, [editingVisa, isOpen]);
@@ -221,6 +410,86 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
     }
   };
 
+  const applyExtractedData = async (extracted: any) => {
+    const {
+      lastName: extractedLast,
+      firstName: extractedFirst,
+      passportNo: extractedPass,
+      passportExpiry: extractedExp,
+      nationality: extractedNat,
+      dateOfBirth: extractedDob,
+      unifiedNumber: extractedUid,
+      icpFileNo: extractedFileNo,
+      entryDate: extractedEntry,
+      expiryDate: extractedExpiry,
+      visaCategory: extractedCat,
+      status: extractedStatus
+    } = extracted;
+    
+    const newLast = extractedLast ? extractedLast.toUpperCase() : lastName;
+    const newFirst = extractedFirst ? extractedFirst.toUpperCase() : firstName;
+    const newPass = extractedPass ? extractedPass.toUpperCase() : passportNo;
+    const newExp = extractedExp || passportExpiry;
+    const newNat = extractedNat ? extractedNat.toUpperCase() : nationality;
+    const newDob = extractedDob || dob;
+    const newUid = extractedUid || unifiedNumber;
+    const newFileNo = extractedFileNo || icpFileNo;
+    const newEntry = extractedEntry || entryDate;
+    let newExpiry = extractedExpiry || expiryDate;
+    const newCat = extractedCat || visaCategory;
+    let newStatusVal = extractedStatus || status;
+
+    if (extractedLast) setLastName(newLast);
+    if (extractedFirst) setFirstName(newFirst);
+    if (extractedPass) setPassportNo(newPass);
+    if (extractedExp) setPassportExpiry(newExp);
+    if (extractedNat) setNationality(newNat);
+    if (extractedDob) setDob(newDob);
+    if (extractedUid) setUnifiedNumber(newUid);
+    if (extractedFileNo) setIcpFileNo(newFileNo);
+    if (extractedEntry) setEntryDate(newEntry);
+    if (extractedExpiry) setExpiryDate(newExpiry);
+    if (extractedCat) setVisaCategory(newCat);
+
+    // Trigger automated ICP validity verification
+    try {
+      const checkRes = await fetch('/api/check-visa-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          passportNo: newPass,
+          passportExpiry: newExp,
+          nationality: newNat,
+          dob: newDob,
+          unifiedNumber: newUid,
+          visaCategory: newCat,
+          entryDate: newEntry,
+          expiryDate: newExpiry,
+          currentStatus: newStatusVal,
+          icpFileNo: newFileNo,
+        }),
+      });
+      const checkJson = await checkRes.json();
+      if (checkJson.success && checkJson.data) {
+        if (checkJson.data.calculatedExpiryDate) {
+          newExpiry = checkJson.data.calculatedExpiryDate;
+          setExpiryDate(newExpiry);
+        }
+        if (checkJson.data.recommendedStatus) {
+          newStatusVal = checkJson.data.recommendedStatus;
+          setStatus(newStatusVal as VisaStatus);
+        }
+      }
+    } catch (e) {
+      console.warn('Auto validity check failed silently', e);
+    }
+
+    setScanStatus({
+      type: 'success',
+      message: `Extracted & Verified with ICP Rules: Expiry Date = ${newExpiry || 'Calculated'}, Status = ${newStatusVal || 'Set'} (UID: ${newUid || 'N/A'}, Passport: ${newPass || 'N/A'})`,
+    });
+  };
+
   const handleFileUpload = async (file: File, docType: 'passport' | 'visa') => {
     if (!file) return;
 
@@ -257,83 +526,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         const result = await response.json();
 
         if (result.success && result.data) {
-          const {
-            lastName: extractedLast,
-            firstName: extractedFirst,
-            passportNo: extractedPass,
-            passportExpiry: extractedExp,
-            nationality: extractedNat,
-            dateOfBirth: extractedDob,
-            unifiedNumber: extractedUid,
-            icpFileNo: extractedFileNo,
-            entryDate: extractedEntry,
-            expiryDate: extractedExpiry,
-            visaCategory: extractedCat,
-            status: extractedStatus
-          } = result.data;
-          
-          const newLast = extractedLast ? extractedLast.toUpperCase() : lastName;
-          const newFirst = extractedFirst ? extractedFirst.toUpperCase() : firstName;
-          const newPass = extractedPass ? extractedPass.toUpperCase() : passportNo;
-          const newExp = extractedExp || passportExpiry;
-          const newNat = extractedNat ? extractedNat.toUpperCase() : nationality;
-          const newDob = extractedDob || dob;
-          const newUid = extractedUid || unifiedNumber;
-          const newFileNo = extractedFileNo || icpFileNo;
-          const newEntry = extractedEntry || entryDate;
-          let newExpiry = extractedExpiry || expiryDate;
-          const newCat = extractedCat || visaCategory;
-          let newStatusVal = extractedStatus || status;
-
-          if (extractedLast) setLastName(newLast);
-          if (extractedFirst) setFirstName(newFirst);
-          if (extractedPass) setPassportNo(newPass);
-          if (extractedExp) setPassportExpiry(newExp);
-          if (extractedNat) setNationality(newNat);
-          if (extractedDob) setDob(newDob);
-          if (extractedUid) setUnifiedNumber(newUid);
-          if (extractedFileNo) setIcpFileNo(newFileNo);
-          if (extractedEntry) setEntryDate(newEntry);
-          if (extractedExpiry) setExpiryDate(newExpiry);
-          if (extractedCat) setVisaCategory(newCat);
-
-          // Trigger automated ICP validity verification
-          try {
-            const checkRes = await fetch('/api/check-visa-status', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                passportNo: newPass,
-                passportExpiry: newExp,
-                nationality: newNat,
-                dob: newDob,
-                unifiedNumber: newUid,
-                visaCategory: newCat,
-                entryDate: newEntry,
-                expiryDate: newExpiry,
-                currentStatus: newStatusVal,
-                icpFileNo: newFileNo,
-              }),
-            });
-            const checkJson = await checkRes.json();
-            if (checkJson.success && checkJson.data) {
-              if (checkJson.data.calculatedExpiryDate) {
-                newExpiry = checkJson.data.calculatedExpiryDate;
-                setExpiryDate(newExpiry);
-              }
-              if (checkJson.data.recommendedStatus) {
-                newStatusVal = checkJson.data.recommendedStatus;
-                setStatus(newStatusVal as VisaStatus);
-              }
-            }
-          } catch (e) {
-            console.warn('Auto validity check failed silently', e);
-          }
-
-          setScanStatus({
-            type: 'success',
-            message: `Extracted & Verified with ICP Rules: Expiry Date = ${newExpiry || 'Calculated'}, Status = ${newStatusVal || 'Set'} (UID: ${newUid || 'N/A'}, Passport: ${newPass || 'N/A'})`,
-          });
+          await applyExtractedData(result.data);
         } else if (result.isQuotaExceeded || response.status === 429) {
           setScanStatus({
             type: 'error',
@@ -357,6 +550,187 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
     };
 
     reader.readAsDataURL(file);
+  };
+
+  // Scan passport from GitHub link or public image URL
+  const handleScanPassportFromUrl = async (customUrl?: string) => {
+    const rawUrl = (customUrl || passportLinkUrl || '').trim();
+    if (!rawUrl) {
+      setScanStatus({
+        type: 'error',
+        message: 'Please paste a valid GitHub passport image link or direct URL.',
+      });
+      return;
+    }
+
+    const normalized = normalizeGitHubUrl(rawUrl);
+    const fileName = rawUrl.split('/').pop()?.split('?')[0] || 'passport_github.jpg';
+
+    setIsScanning(true);
+    setScanStatus(null);
+
+    try {
+      const response = await fetch('/api/parse-passport', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: normalized }),
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.data) {
+        if (result.imageAttachment) {
+          setPassportAttachment(result.imageAttachment);
+          setPassportFileName(fileName);
+        }
+        await applyExtractedData(result.data);
+      } else if (result.imageAttachment) {
+        setPassportAttachment(result.imageAttachment);
+        setPassportFileName(fileName);
+        setScanStatus({
+          type: 'error',
+          message: result.error || 'Passport attached from GitHub! Please review details.',
+        });
+      } else {
+        // Fallback: try fetching direct raw GitHub content on client if CORS allowed
+        try {
+          const directRes = await fetch(normalized);
+          if (directRes.ok) {
+            const blob = await directRes.blob();
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const dataUrl = e.target?.result as string;
+              setPassportAttachment(dataUrl);
+              setPassportFileName(fileName);
+            };
+            reader.readAsDataURL(blob);
+            setScanStatus({
+              type: 'error',
+              message: result.error || 'Passport image retrieved and attached from GitHub! Please verify applicant details below.',
+            });
+            return;
+          }
+        } catch (cErr) {
+          console.warn('Client fallback image download failed:', cErr);
+        }
+
+        setScanStatus({
+          type: 'error',
+          message: result.error || 'Could not scan passport from the provided GitHub link. Verify that the repository or image is publicly accessible.',
+        });
+      }
+    } catch (err: any) {
+      console.error('Scan GitHub URL error:', err);
+      // Client-side fallback fetch
+      try {
+        const directRes = await fetch(normalized);
+        if (directRes.ok) {
+          const blob = await directRes.blob();
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const dataUrl = e.target?.result as string;
+            setPassportAttachment(dataUrl);
+            setPassportFileName(fileName);
+          };
+          reader.readAsDataURL(blob);
+          setScanStatus({
+            type: 'success',
+            message: 'Passport image loaded from GitHub link and attached! Please confirm applicant details below.',
+          });
+          return;
+        }
+      } catch (cErr) {
+        console.warn('Direct fetch fallback error:', cErr);
+      }
+
+      setScanStatus({
+        type: 'error',
+        message: 'Could not connect to passport scanner. Please verify the GitHub link or upload the image directly.',
+      });
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  // Scan visa document from GitHub link or public image URL
+  const handleScanVisaFromUrl = async () => {
+    const rawUrl = (visaLinkUrl || '').trim();
+    if (!rawUrl) {
+      setScanStatus({
+        type: 'error',
+        message: 'Please paste a valid GitHub link or image URL for the visa document.',
+      });
+      return;
+    }
+
+    const normalized = normalizeGitHubUrl(rawUrl);
+    const fileName = rawUrl.split('/').pop()?.split('?')[0] || 'visa_document_github.jpg';
+
+    setIsScanning(true);
+    setScanStatus(null);
+
+    try {
+      const response = await fetch('/api/parse-passport', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: normalized }),
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.data) {
+        if (result.imageAttachment) {
+          setVisaAttachment(result.imageAttachment);
+          setVisaFileName(fileName);
+        }
+        await applyExtractedData(result.data);
+      } else {
+        setScanStatus({
+          type: 'error',
+          message: result.error || 'Could not parse visa document from link.',
+        });
+      }
+    } catch (err) {
+      console.error('Scan Visa Link Error:', err);
+      setScanStatus({
+        type: 'error',
+        message: 'Could not retrieve visa document from the provided link.',
+      });
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  // Fast offline MRZ Scanner
+  const handleParseMRZ = () => {
+    if (!passportMrzText.trim()) {
+      setScanStatus({
+        type: 'error',
+        message: 'Please enter or paste the 2 lines of passport MRZ text (starting with P<).',
+      });
+      return;
+    }
+
+    const parsed = parsePassportMRZ(passportMrzText);
+    if (!parsed) {
+      setScanStatus({
+        type: 'error',
+        message: 'Could not parse MRZ. Ensure you include both lines from the bottom of the passport (starting with P<).',
+      });
+      return;
+    }
+
+    if (parsed.lastName) setLastName(parsed.lastName);
+    if (parsed.firstName) setFirstName(parsed.firstName);
+    if (parsed.passportNo) setPassportNo(parsed.passportNo);
+    if (parsed.nationality) setNationality(parsed.nationality);
+    if (parsed.dateOfBirth) setDob(parsed.dateOfBirth);
+    if (parsed.expiryDate) setPassportExpiry(parsed.expiryDate);
+
+    setScanStatus({
+      type: 'success',
+      message: `Passport MRZ Parsed Successfully: ${parsed.firstName} ${parsed.lastName} (Passport No: ${parsed.passportNo}, DOB: ${parsed.dateOfBirth}, Exp: ${parsed.expiryDate})`,
+    });
   };
 
   const handlePassportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -399,6 +773,145 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
 
     const todayStr = new Date().toLocaleDateString('en-GB');
 
+    if (isGroup) {
+      // Validate that at least one applicant has names and passport
+      const validApplicants = groupApplicants.filter(
+        (app) => (app.lastName.trim() || app.firstName.trim()) && app.passportNo.trim()
+      );
+
+      if (validApplicants.length === 0) {
+        alert('Please provide at least one applicant with a Name and Passport Number for the group application.');
+        return;
+      }
+
+      const effectivePax = validApplicants.length;
+      let costPax: number | undefined;
+      let sellPax: number | undefined;
+
+      if (pricingMode === 'per_pax') {
+        const c = costPerPax ? parseFloat(costPerPax) : undefined;
+        const s = sellingPerPax ? parseFloat(sellingPerPax) : undefined;
+        costPax = !isNaN(c as number) ? c : undefined;
+        sellPax = !isNaN(s as number) ? s : undefined;
+      } else {
+        const tc = purchasingPrice ? parseFloat(purchasingPrice) : undefined;
+        const ts = sellingPrice ? parseFloat(sellingPrice) : undefined;
+        costPax = !isNaN(tc as number) ? Math.round((tc as number) / effectivePax) : undefined;
+        sellPax = !isNaN(ts as number) ? Math.round((ts as number) / effectivePax) : undefined;
+      }
+
+      const sharedGroupId = editingVisa?.groupId || `grp-visa-${Date.now()}`;
+      const sharedGroupName =
+        groupName.trim() ||
+        `${validApplicants[0].lastName} Group (${destinationCountry.split(' ')[0]} ${visaCategory})`;
+
+      const membersList: VisaGroupMember[] = validApplicants.map((a) => ({
+        id: a.id,
+        lastName: a.lastName.trim().toUpperCase(),
+        firstName: a.firstName.trim().toUpperCase(),
+        passportNo: a.passportNo.trim().toUpperCase(),
+        passportExpiry: a.passportExpiry || 'N/A',
+        nationality: (a.nationality || nationality || 'SRI LANKAN').toUpperCase(),
+        dob: a.dob || undefined,
+        unifiedNumber: a.unifiedNumber || undefined,
+        icpFileNo: a.icpFileNo || undefined,
+        passportAttachment: a.passportAttachment,
+        passportFileName: a.passportFileName,
+      }));
+
+      if (editingVisa && onUpdateVisa) {
+        onUpdateVisa({
+          ...editingVisa,
+          lastName: validApplicants[0].lastName.trim().toUpperCase(),
+          firstName: validApplicants[0].firstName.trim().toUpperCase(),
+          passportNo: validApplicants[0].passportNo.trim().toUpperCase(),
+          passportExpiry: validApplicants[0].passportExpiry || 'N/A',
+          nationality: (validApplicants[0].nationality || nationality || 'SRI LANKAN').toUpperCase(),
+          destinationCountry: destinationCountry.trim() || 'United Arab Emirates (UAE)',
+          unifiedNumber: validApplicants[0].unifiedNumber || unifiedNumber || undefined,
+          dob: validApplicants[0].dob || dob || undefined,
+          visaCategory,
+          entryDate,
+          expiryDate,
+          status: (status as VisaStatus) || 'Not Confirmed',
+          customer,
+          customerType,
+          remarks,
+          supplier: supplier.trim() || undefined,
+          purchasingPrice: costPax,
+          sellingPrice: sellPax,
+          paymentStatus: paymentStatus || 'Pending',
+          currency: currency || 'AED',
+          passportAttachment,
+          passportFileName,
+          visaAttachment,
+          visaFileName,
+          icpFileNo: validApplicants[0].icpFileNo || icpFileNo || undefined,
+
+          isGroup: true,
+          groupName: sharedGroupName.toUpperCase(),
+          groupId: sharedGroupId,
+          groupSize: validApplicants.length,
+          groupMemberIndex: editingVisa.groupMemberIndex || 1,
+          groupMembers: membersList,
+          pricingMode,
+          costPerPax: costPax,
+          sellingPerPax: sellPax,
+        });
+      } else {
+        const newVisas: VisaFollowup[] = validApplicants.map((app, idx) => ({
+          id: `v-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
+          submissionDate: todayStr,
+          lastName: app.lastName.trim().toUpperCase(),
+          firstName: app.firstName.trim().toUpperCase(),
+          passportNo: app.passportNo.trim().toUpperCase(),
+          passportExpiry: app.passportExpiry || 'N/A',
+          nationality: (app.nationality || nationality || 'SRI LANKAN').toUpperCase(),
+          destinationCountry: destinationCountry.trim() || 'United Arab Emirates (UAE)',
+          unifiedNumber: app.unifiedNumber || (idx === 0 ? unifiedNumber : undefined),
+          dob: app.dob || (idx === 0 ? dob : undefined),
+          visaCategory: visaCategory,
+          entryDate: entryDate || 'N/A',
+          expiryDate: expiryDate || 'N/A',
+          status: (status as VisaStatus) || 'Not Confirmed',
+          customer: customer.trim() || 'Seagull Global',
+          customerType: customerType,
+          remarks: remarks,
+          supplier: supplier.trim() || undefined,
+          purchasingPrice: costPax,
+          sellingPrice: sellPax,
+          paymentStatus: paymentStatus || 'Pending',
+          currency: currency || 'AED',
+          passportAttachment: app.passportAttachment || (idx === 0 ? passportAttachment : undefined),
+          passportFileName: app.passportFileName || (idx === 0 ? passportFileName : undefined),
+          visaAttachment: idx === 0 ? visaAttachment : undefined,
+          visaFileName: idx === 0 ? visaFileName : undefined,
+          icpFileNo: app.icpFileNo || (idx === 0 ? icpFileNo : undefined),
+          createdAt: new Date().toISOString(),
+
+          isGroup: true,
+          groupName: sharedGroupName.toUpperCase(),
+          groupId: sharedGroupId,
+          groupSize: validApplicants.length,
+          groupMemberIndex: idx + 1,
+          groupMembers: membersList,
+          pricingMode,
+          costPerPax: costPax,
+          sellingPerPax: sellPax,
+        }));
+
+        if (onAddBatchVisas) {
+          onAddBatchVisas(newVisas);
+        } else {
+          newVisas.forEach((v) => onAddVisa(v));
+        }
+      }
+
+      onClose();
+      return;
+    }
+
+    // Single Visa Mode
     const numPurchasing = purchasingPrice ? parseFloat(purchasingPrice) : undefined;
     const numSelling = sellingPrice ? parseFloat(sellingPrice) : undefined;
 
@@ -430,6 +943,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         visaAttachment,
         visaFileName,
         icpFileNo: icpFileNo || undefined,
+        isGroup: false,
       });
     } else {
       const newVisa: VisaFollowup = {
@@ -460,7 +974,8 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         visaAttachment,
         visaFileName,
         icpFileNo: icpFileNo || undefined,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isGroup: false,
       };
       onAddVisa(newVisa);
     }
@@ -472,18 +987,105 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl border border-slate-200 overflow-hidden relative my-auto my-8">
+      <div className={`bg-white w-full ${isGroup ? 'max-w-3xl' : 'max-w-xl'} rounded-xl shadow-2xl border border-slate-200 overflow-hidden relative my-auto my-8 transition-all`}>
         
         <div className="bg-[#0088CC] text-white p-4 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <FileText className="w-5 h-5" />
+            {isGroup ? <Users className="w-5 h-5 text-amber-300" /> : <FileText className="w-5 h-5" />}
             <h3 className="text-sm font-bold">
-              {editingVisa ? 'Edit Visa Application' : 'Add New Visa Application'}
+              {editingVisa
+                ? isGroup
+                  ? 'Edit Group Visa Application'
+                  : 'Edit Visa Application'
+                : isGroup
+                ? 'Add Group Visa Applications'
+                : 'Add New Visa Application'}
             </h3>
           </div>
           <button onClick={onClose} className="p-1 text-white/80 hover:text-white rounded">
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Top Application Mode Switcher Bar */}
+        <div className="bg-slate-50 border-b border-slate-200 px-5 py-2.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center space-x-2">
+            <span className="text-xs font-bold text-slate-600">Application Mode:</span>
+            <div className="inline-flex bg-white p-1 rounded-lg border border-slate-300 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setIsGroup(false)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
+                  !isGroup
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>Single Applicant</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsGroup(true);
+                  if (groupApplicants.length === 0) {
+                    setGroupApplicants([
+                      {
+                        id: `app-${Date.now()}-1`,
+                        lastName: lastName || '',
+                        firstName: firstName || '',
+                        passportNo: passportNo || '',
+                        passportExpiry: passportExpiry || '',
+                        nationality: nationality || 'SRI LANKAN',
+                        dob: dob || '',
+                        unifiedNumber: unifiedNumber || '',
+                        icpFileNo: icpFileNo || '',
+                      },
+                      {
+                        id: `app-${Date.now()}-2`,
+                        lastName: '',
+                        firstName: '',
+                        passportNo: '',
+                        passportExpiry: '',
+                        nationality: nationality || 'SRI LANKAN',
+                        dob: '',
+                        unifiedNumber: '',
+                        icpFileNo: '',
+                      },
+                    ]);
+                  }
+                }}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
+                  isGroup
+                    ? 'bg-purple-700 text-white shadow-xs'
+                    : 'text-purple-700 hover:bg-purple-50'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Enter as Group</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-amber-400 text-slate-900">
+                  Multi-Pax
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {isGroup && (
+            <div className="flex items-center space-x-2">
+              <span className="bg-purple-100 text-purple-900 font-extrabold text-xs px-2.5 py-1 rounded-full border border-purple-200 flex items-center space-x-1">
+                <Users className="w-3 h-3 text-purple-600" />
+                <span>{groupApplicants.length} Applicants in Group</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowBulkPasteModal(true)}
+                className="px-3 py-1 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-bold rounded-lg flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+              >
+                <ClipboardList className="w-3.5 h-3.5 text-blue-600" />
+                <span>Bulk Paste</span>
+              </button>
+            </div>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
@@ -560,8 +1162,56 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
               </div>
             </div>
           )}
-          
-          {/* Document Attachments & AI Auto-fill Section */}
+
+          {/* Group Reference Card when isGroup is active */}
+          {isGroup && (
+            <div className="bg-purple-50/70 border border-purple-200 rounded-xl p-3.5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="p-1 rounded-md bg-purple-700 text-white">
+                    <Users className="w-3.5 h-3.5" />
+                  </div>
+                  <h4 className="font-extrabold text-xs text-purple-950 uppercase tracking-wide">
+                    Group Reference & Identity
+                  </h4>
+                </div>
+                <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full border border-purple-200">
+                  Group Application Package
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    Group Name / Reference <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={groupName}
+                    onChange={(e) => setGroupName(e.target.value.toUpperCase())}
+                    placeholder="e.g. AL-NOOR UMRAH GROUP 2026, PERERA FAMILY"
+                    className="w-full bg-white border border-purple-300 rounded-lg p-2 font-bold uppercase text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    required={isGroup}
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    Group Lead / Contact Reference (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    placeholder="e.g. Lead: Mr. Sunil / WhatsApp +94 77 123 4567"
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Single Applicant Document Attachments & AI Auto-fill Section */}
+          {!isGroup && (
+            <>
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3">
             <div className="flex items-center justify-between">
               <label className="font-bold text-slate-800 flex items-center space-x-1.5">
@@ -601,7 +1251,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
                     <button
                       type="button"
                       onClick={handleRemovePassportAttachment}
-                      className="text-red-600 hover:text-red-700 font-semibold text-[10px] flex items-center space-x-0.5"
+                      className="text-red-600 hover:text-red-700 font-semibold text-[10px] flex items-center space-x-0.5 cursor-pointer"
                     >
                       <Trash2 className="w-3 h-3" />
                       <span>Remove</span>
@@ -609,21 +1259,123 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
                   )}
                 </div>
 
-                {!passportAttachment ? (
-                  <div
-                    onClick={() => passportInputRef.current?.click()}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                        handleFileUpload(e.dataTransfer.files[0], 'passport');
-                      }
-                    }}
-                    className="border-2 border-dashed border-blue-200 hover:border-blue-400 bg-blue-50/50 rounded-lg p-2 text-center cursor-pointer transition-colors"
-                  >
-                    <p className="font-bold text-blue-700 text-[11px]">Click or Drop Passport</p>
-                    <p className="text-[9px] text-slate-400">JPG, PNG, PDF</p>
+                {/* Source Selection Tabs: Upload File | GitHub / Web Link | MRZ Text */}
+                {!passportAttachment && (
+                  <div className="flex bg-slate-100 p-0.5 rounded-lg text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setPassportSourceType('file')}
+                      className={`flex-1 py-1 rounded-md transition-colors flex items-center justify-center space-x-1 cursor-pointer ${
+                        passportSourceType === 'file' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Upload className="w-3 h-3" />
+                      <span>Upload</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPassportSourceType('link')}
+                      className={`flex-1 py-1 rounded-md transition-colors flex items-center justify-center space-x-1 cursor-pointer ${
+                        passportSourceType === 'link' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Link className="w-3 h-3" />
+                      <span>GitHub Link</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPassportSourceType('mrz')}
+                      className={`flex-1 py-1 rounded-md transition-colors flex items-center justify-center space-x-1 cursor-pointer ${
+                        passportSourceType === 'mrz' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <ScanLine className="w-3 h-3" />
+                      <span>MRZ</span>
+                    </button>
                   </div>
+                )}
+
+                {!passportAttachment ? (
+                  passportSourceType === 'file' ? (
+                    <div
+                      onClick={() => passportInputRef.current?.click()}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                          handleFileUpload(e.dataTransfer.files[0], 'passport');
+                        }
+                      }}
+                      className="border-2 border-dashed border-blue-200 hover:border-blue-400 bg-blue-50/50 rounded-lg p-2.5 text-center cursor-pointer transition-colors"
+                    >
+                      <p className="font-bold text-blue-700 text-[11px]">Click or Drop Passport</p>
+                      <p className="text-[9px] text-slate-400">JPG, PNG, PDF</p>
+                    </div>
+                  ) : passportSourceType === 'link' ? (
+                    <div className="space-y-1.5 bg-blue-50/40 p-2 rounded-lg border border-blue-100">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold text-slate-700 flex items-center space-x-1">
+                          <Globe className="w-3 h-3 text-blue-600" />
+                          <span>GitHub or Image URL:</span>
+                        </label>
+                      </div>
+                      <div className="flex space-x-1">
+                        <input
+                          type="url"
+                          value={passportLinkUrl}
+                          onChange={(e) => setPassportLinkUrl(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleScanPassportFromUrl();
+                            }
+                          }}
+                          placeholder="https://github.com/.../passport.jpg"
+                          className="flex-1 min-w-0 bg-white border border-slate-300 rounded px-2 py-1 text-[10px] font-mono text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleScanPassportFromUrl()}
+                          disabled={isScanning || !passportLinkUrl.trim()}
+                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[10px] font-bold rounded flex items-center space-x-1 cursor-pointer shrink-0 shadow-2xs"
+                        >
+                          {isScanning ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3 h-3" />
+                          )}
+                          <span>Scan</span>
+                        </button>
+                      </div>
+                      <p className="text-[9px] text-slate-500 leading-tight">
+                        Supports GitHub blob, raw, or direct image links.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 bg-purple-50/40 p-2 rounded-lg border border-purple-100">
+                      <label className="text-[10px] font-bold text-purple-900 block">
+                        Passport MRZ (2 lines at bottom of passport):
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={passportMrzText}
+                        onChange={(e) => setPassportMrzText(e.target.value)}
+                        placeholder="P<LKASILVA<<ANURADI<<<<<<<<<<<<<<<<<<<\nN1234567<8LKA9208154M3208154<<<<<<<<<<<<<<02"
+                        className="w-full bg-white border border-purple-200 rounded p-1.5 text-[9px] font-mono text-purple-950 uppercase tracking-wider focus:outline-none focus:ring-1 focus:ring-purple-500"
+                      />
+                      <div className="flex justify-between items-center">
+                        <span className="text-[8px] text-purple-700">Offline Instant Parsing</span>
+                        <button
+                          type="button"
+                          onClick={handleParseMRZ}
+                          disabled={!passportMrzText.trim()}
+                          className="px-2 py-0.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-[10px] font-bold rounded cursor-pointer shadow-2xs"
+                        >
+                          Parse MRZ
+                        </button>
+                      </div>
+                    </div>
+                  )
                 ) : (
                   <div className="flex items-center space-x-2 bg-slate-50 p-1.5 rounded border border-slate-200">
                     {passportAttachment.startsWith('data:image') ? (
@@ -638,7 +1390,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
                     <button
                       type="button"
                       onClick={() => passportInputRef.current?.click()}
-                      className="px-1.5 py-0.5 bg-white border border-slate-200 text-slate-700 rounded text-[9px] font-semibold"
+                      className="px-1.5 py-0.5 bg-white border border-slate-200 text-slate-700 rounded text-[9px] font-semibold cursor-pointer hover:bg-slate-100"
                     >
                       Change
                     </button>
@@ -657,7 +1409,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
                     <button
                       type="button"
                       onClick={handleRemoveVisaAttachment}
-                      className="text-red-600 hover:text-red-700 font-semibold text-[10px] flex items-center space-x-0.5"
+                      className="text-red-600 hover:text-red-700 font-semibold text-[10px] flex items-center space-x-0.5 cursor-pointer"
                     >
                       <Trash2 className="w-3 h-3" />
                       <span>Remove</span>
@@ -665,21 +1417,87 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
                   )}
                 </div>
 
-                {!visaAttachment ? (
-                  <div
-                    onClick={() => visaInputRef.current?.click()}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                        handleFileUpload(e.dataTransfer.files[0], 'visa');
-                      }
-                    }}
-                    className="border-2 border-dashed border-purple-200 hover:border-purple-400 bg-purple-50/50 rounded-lg p-2 text-center cursor-pointer transition-colors"
-                  >
-                    <p className="font-bold text-purple-700 text-[11px]">Click or Drop Visa Document</p>
-                    <p className="text-[9px] text-slate-400">JPG, PNG, PDF</p>
+                {/* Source Selection Tabs for Visa Doc */}
+                {!visaAttachment && (
+                  <div className="flex bg-slate-100 p-0.5 rounded-lg text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setVisaSourceType('file')}
+                      className={`flex-1 py-1 rounded-md transition-colors flex items-center justify-center space-x-1 cursor-pointer ${
+                        visaSourceType === 'file' ? 'bg-white text-purple-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Upload className="w-3 h-3" />
+                      <span>Upload</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisaSourceType('link')}
+                      className={`flex-1 py-1 rounded-md transition-colors flex items-center justify-center space-x-1 cursor-pointer ${
+                        visaSourceType === 'link' ? 'bg-white text-purple-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Link className="w-3 h-3" />
+                      <span>GitHub Link</span>
+                    </button>
                   </div>
+                )}
+
+                {!visaAttachment ? (
+                  visaSourceType === 'file' ? (
+                    <div
+                      onClick={() => visaInputRef.current?.click()}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                          handleFileUpload(e.dataTransfer.files[0], 'visa');
+                        }
+                      }}
+                      className="border-2 border-dashed border-purple-200 hover:border-purple-400 bg-purple-50/50 rounded-lg p-2.5 text-center cursor-pointer transition-colors"
+                    >
+                      <p className="font-bold text-purple-700 text-[11px]">Click or Drop Visa Document</p>
+                      <p className="text-[9px] text-slate-400">JPG, PNG, PDF</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 bg-purple-50/40 p-2 rounded-lg border border-purple-100">
+                      <label className="text-[10px] font-bold text-slate-700 flex items-center space-x-1">
+                        <Globe className="w-3 h-3 text-purple-600" />
+                        <span>GitHub or Image URL:</span>
+                      </label>
+                      <div className="flex space-x-1">
+                        <input
+                          type="url"
+                          value={visaLinkUrl}
+                          onChange={(e) => setVisaLinkUrl(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleScanVisaFromUrl();
+                            }
+                          }}
+                          placeholder="https://github.com/.../visa.jpg"
+                          className="flex-1 min-w-0 bg-white border border-slate-300 rounded px-2 py-1 text-[10px] font-mono text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleScanVisaFromUrl()}
+                          disabled={isScanning || !visaLinkUrl.trim()}
+                          className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-[10px] font-bold rounded flex items-center space-x-1 cursor-pointer shrink-0 shadow-2xs"
+                        >
+                          {isScanning ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3 h-3" />
+                          )}
+                          <span>Scan</span>
+                        </button>
+                      </div>
+                      <p className="text-[9px] text-slate-500 leading-tight">
+                        Supports GitHub blob, raw, or direct image links.
+                      </p>
+                    </div>
+                  )
                 ) : (
                   <div className="flex items-center space-x-2 bg-slate-50 p-1.5 rounded border border-slate-200">
                     {visaAttachment.startsWith('data:image') ? (
@@ -694,7 +1512,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
                     <button
                       type="button"
                       onClick={() => visaInputRef.current?.click()}
-                      className="px-1.5 py-0.5 bg-white border border-slate-200 text-slate-700 rounded text-[9px] font-semibold"
+                      className="px-1.5 py-0.5 bg-white border border-slate-200 text-slate-700 rounded text-[9px] font-semibold cursor-pointer hover:bg-slate-100"
                     >
                       Change
                     </button>
@@ -826,6 +1644,8 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
               />
             </div>
           </div>
+            </>
+          )}
 
           {/* Processing Visa Country & Visa Category */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -847,6 +1667,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
                   <option value="Bahrain">🇧🇭 Bahrain</option>
                   <option value="Malaysia">🇲🇾 Malaysia</option>
                   <option value="Singapore">🇸🇬 Singapore</option>
+                  <option value="Indonesia">🇮🇩 Indonesia</option>
                   <option value="Thailand">🇹🇭 Thailand</option>
                   <option value="Turkey">🇹🇷 Turkey</option>
                   <option value="Schengen / Europe">🇪🇺 Schengen / Europe</option>
@@ -858,7 +1679,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
                   <option value="Sri Lanka">🇱🇰 Sri Lanka</option>
                 </select>
                 <div className="flex flex-wrap gap-1">
-                  {['United Arab Emirates (UAE)', 'Saudi Arabia', 'Qatar', 'Oman', 'Kuwait', 'Malaysia'].map((c) => (
+                  {['United Arab Emirates (UAE)', 'Saudi Arabia', 'Qatar', 'Oman', 'Kuwait', 'Malaysia', 'Singapore', 'Indonesia'].map((c) => (
                     <button
                       key={c}
                       type="button"
@@ -1059,205 +1880,232 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
             </div>
           </div>
 
-          {/* Section: Supplier & Financial Details */}
-          <div className="bg-gradient-to-br from-slate-50 to-blue-50/40 p-4 rounded-xl border border-blue-200/80 space-y-3.5 shadow-2xs">
-            <div className="flex items-center justify-between border-b border-blue-200/60 pb-2">
-              <div className="flex items-center space-x-2">
-                <div className="p-1 rounded-md bg-blue-600 text-white">
-                  <DollarSign className="w-3.5 h-3.5" />
-                </div>
-                <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-wide">
-                  Supplier & Financial Billing
-                </h4>
-              </div>
-              <span className="text-[10px] font-bold text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-full">
-                Cost & Profit Tracking
-              </span>
-            </div>
-
-            {/* Supplier Name */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-bold text-slate-700 flex items-center space-x-1">
-                  <Building2 className="w-3 h-3 text-blue-600" />
-                  <span>Supplier Name / Issuing Provider</span>
-                </label>
-                <span className="text-[10px] text-slate-400 font-semibold">e.g. Musafir, Rayna Tours, Direct ICP</span>
-              </div>
-              <input
-                type="text"
-                list="visa-recorded-suppliers"
-                value={supplier}
-                onChange={(e) => setSupplier(e.target.value)}
-                placeholder="Enter or select supplier (e.g. Musafir B2B, Rayna Tours, Regal Travel)"
-                className="w-full bg-white border border-slate-300 rounded-lg p-2 font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              <datalist id="visa-recorded-suppliers">
-                <option value="Musafir B2B" />
-                <option value="Rayna Tours" />
-                <option value="Regal Travel" />
-                <option value="Deira Travel" />
-                <option value="Al Rostamani" />
-                <option value="Direct ICP / GDRFA Portal" />
-                <option value="AeroConnect Ltd" />
-                <option value="Travelwings" />
-                <option value="Global Visa Services" />
-              </datalist>
-
-              {/* Quick Supplier Chips */}
-              <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Quick Pick:</span>
-                {['Musafir B2B', 'Rayna Tours', 'Regal Travel', 'Direct ICP Portal', 'Deira Travel'].map((sup) => (
-                  <button
-                    key={sup}
-                    type="button"
-                    onClick={() => setSupplier(sup)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-all cursor-pointer ${
-                      supplier === sup
-                        ? 'bg-blue-600 text-white border-blue-600 font-bold shadow-2xs'
-                        : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-300'
-                    }`}
-                  >
-                    {sup}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Purchasing Price, Selling Price & Currency */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">Currency</label>
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2 font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                >
-                  <option value="AED">AED (UAE Dirham)</option>
-                  <option value="LKR">LKR (Sri Lankan Rupee)</option>
-                  <option value="USD">USD (US Dollar)</option>
-                  <option value="EUR">EUR (Euro)</option>
-                  <option value="SAR">SAR (Saudi Riyal)</option>
-                </select>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-bold text-slate-700">Purchasing Price (Cost)</label>
-                  <span className="text-[10px] text-slate-400 font-mono">Net Cost</span>
-                </div>
-                <div className="relative">
-                  <span className="absolute left-2.5 top-2 font-mono font-bold text-slate-400 text-xs">
-                    {currency}
-                  </span>
-                  <input
-                    type="number"
-                    step="any"
-                    value={purchasingPrice}
-                    onChange={(e) => setPurchasingPrice(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full bg-white border border-slate-300 rounded-lg p-2 pl-12 font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-bold text-slate-700">Selling Price</label>
-                  <span className="text-[10px] text-slate-400 font-mono">Client Rate</span>
-                </div>
-                <div className="relative">
-                  <span className="absolute left-2.5 top-2 font-mono font-bold text-slate-400 text-xs">
-                    {currency}
-                  </span>
-                  <input
-                    type="number"
-                    step="any"
-                    value={sellingPrice}
-                    onChange={(e) => setSellingPrice(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full bg-white border border-slate-300 rounded-lg p-2 pl-12 font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Live Profit Margin Calculation Banner */}
-            {(purchasingPrice || sellingPrice) && (
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 flex items-center justify-between text-xs shadow-2xs">
-                <div className="flex items-center space-x-1.5">
-                  <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="text-slate-600 font-semibold">Estimated Margin / Profit:</span>
-                </div>
-                <div className="flex items-center space-x-2 font-mono">
-                  <span className={`font-extrabold ${
-                    ((parseFloat(sellingPrice) || 0) - (parseFloat(purchasingPrice) || 0)) >= 0
-                      ? 'text-emerald-700'
-                      : 'text-red-600'
-                  }`}>
-                    {currency} {((parseFloat(sellingPrice) || 0) - (parseFloat(purchasingPrice) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                  {parseFloat(purchasingPrice) > 0 && parseFloat(sellingPrice) > 0 && (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                      ((parseFloat(sellingPrice) || 0) - (parseFloat(purchasingPrice) || 0)) >= 0
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {((((parseFloat(sellingPrice) || 0) - (parseFloat(purchasingPrice) || 0)) / (parseFloat(purchasingPrice) || 1)) * 100).toFixed(1)}% Margin
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Payment Status Selector */}
-            <div>
-              <label className="font-bold text-slate-700 block mb-1.5 flex items-center space-x-1">
-                <Wallet className="w-3.5 h-3.5 text-blue-600" />
-                <span>Payment Status</span>
+          {/* Section: Supplier Name / Issuing Provider (Shared for Single & Group) */}
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="font-bold text-slate-700 flex items-center space-x-1 text-xs">
+                <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                <span>Supplier Name / Issuing Provider</span>
               </label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPaymentStatus('Paid')}
-                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer border ${
-                    paymentStatus === 'Paid'
-                      ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-200'
-                      : 'bg-white text-slate-700 hover:bg-emerald-50 border-slate-300'
-                  }`}
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Paid</span>
-                </button>
+              <span className="text-[10px] text-slate-400 font-semibold">e.g. Musafir, Rayna Tours, Direct ICP</span>
+            </div>
+            <input
+              type="text"
+              list="visa-recorded-suppliers"
+              value={supplier}
+              onChange={(e) => setSupplier(e.target.value)}
+              placeholder="Enter or select supplier (e.g. Musafir B2B, Rayna Tours, Regal Travel)"
+              className="w-full bg-white border border-slate-300 rounded-lg p-2 font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <datalist id="visa-recorded-suppliers">
+              <option value="Musafir B2B" />
+              <option value="Rayna Tours" />
+              <option value="Regal Travel" />
+              <option value="Deira Travel" />
+              <option value="Al Rostamani" />
+              <option value="Direct ICP / GDRFA Portal" />
+              <option value="AeroConnect Ltd" />
+              <option value="Travelwings" />
+              <option value="Global Visa Services" />
+            </datalist>
 
+            {/* Quick Supplier Chips */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Quick Pick:</span>
+              {['Musafir B2B', 'Rayna Tours', 'Regal Travel', 'Direct ICP Portal', 'Deira Travel'].map((sup) => (
                 <button
+                  key={sup}
                   type="button"
-                  onClick={() => setPaymentStatus('Pending')}
-                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer border ${
-                    paymentStatus === 'Pending'
-                      ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-200'
-                      : 'bg-white text-slate-700 hover:bg-amber-50 border-slate-300'
+                  onClick={() => setSupplier(sup)}
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-all cursor-pointer ${
+                    supplier === sup
+                      ? 'bg-blue-600 text-white border-blue-600 font-bold shadow-2xs'
+                      : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-300'
                   }`}
                 >
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>Pending</span>
+                  {sup}
                 </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPaymentStatus('Partially Paid')}
-                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer border ${
-                    paymentStatus === 'Partially Paid'
-                      ? 'bg-blue-600 text-white border-blue-700 shadow-xs ring-2 ring-blue-200'
-                      : 'bg-white text-slate-700 hover:bg-blue-50 border-slate-300'
-                  }`}
-                >
-                  <Wallet className="w-3.5 h-3.5" />
-                  <span>Partially Paid</span>
-                </button>
-              </div>
+              ))}
             </div>
           </div>
+
+          {/* Group Applicants & Group Financials OR Single Financial Card */}
+          {isGroup ? (
+            <GroupVisaApplicantsSection
+              groupApplicants={groupApplicants}
+              onAddApplicant={handleAddApplicant}
+              onRemoveApplicant={handleRemoveApplicant}
+              onUpdateApplicant={handleUpdateApplicant}
+              onOpenBulkPaste={() => setShowBulkPasteModal(true)}
+              defaultNationality={nationality || 'SRI LANKAN'}
+              pricingMode={pricingMode}
+              onChangePricingMode={setPricingMode}
+              costPerPax={costPerPax}
+              onChangeCostPerPax={setCostPerPax}
+              sellingPerPax={sellingPerPax}
+              onChangeSellingPerPax={setSellingPerPax}
+              purchasingPrice={purchasingPrice}
+              onChangePurchasingPrice={setPurchasingPrice}
+              sellingPrice={sellingPrice}
+              onChangeSellingPrice={setSellingPrice}
+              currency={currency}
+              onChangeCurrency={setCurrency}
+              paymentStatus={paymentStatus}
+              onChangePaymentStatus={setPaymentStatus}
+            />
+          ) : (
+            <div className="bg-gradient-to-br from-slate-50 to-blue-50/40 p-4 rounded-xl border border-blue-200/80 space-y-3.5 shadow-2xs">
+              <div className="flex items-center justify-between border-b border-blue-200/60 pb-2">
+                <div className="flex items-center space-x-2">
+                  <div className="p-1 rounded-md bg-blue-600 text-white">
+                    <DollarSign className="w-3.5 h-3.5" />
+                  </div>
+                  <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-wide">
+                    Financial Billing & Rates
+                  </h4>
+                </div>
+                <span className="text-[10px] font-bold text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-full">
+                  Cost & Profit Tracking
+                </span>
+              </div>
+
+              {/* Purchasing Price, Selling Price & Currency */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Currency</label>
+                  <select
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2 font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                  >
+                    <option value="AED">AED (UAE Dirham)</option>
+                    <option value="LKR">LKR (Sri Lankan Rupee)</option>
+                    <option value="USD">USD (US Dollar)</option>
+                    <option value="EUR">EUR (Euro)</option>
+                    <option value="SAR">SAR (Saudi Riyal)</option>
+                    <option value="IDR">IDR (Indonesian Rupiah)</option>
+                    <option value="MYR">MYR (Malaysian Ringgit)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700">Purchasing Price (Cost)</label>
+                    <span className="text-[10px] text-slate-400 font-mono">Net Cost</span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-2 font-mono font-bold text-slate-400 text-xs">
+                      {currency}
+                    </span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={purchasingPrice}
+                      onChange={(e) => setPurchasingPrice(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-white border border-slate-300 rounded-lg p-2 pl-12 font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700">Selling Price</label>
+                    <span className="text-[10px] text-slate-400 font-mono">Client Rate</span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-2 font-mono font-bold text-slate-400 text-xs">
+                      {currency}
+                    </span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={sellingPrice}
+                      onChange={(e) => setSellingPrice(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-white border border-slate-300 rounded-lg p-2 pl-12 font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Profit Margin Calculation Banner */}
+              {(purchasingPrice || sellingPrice) && (
+                <div className="bg-white p-2.5 rounded-lg border border-slate-200 flex items-center justify-between text-xs shadow-2xs">
+                  <div className="flex items-center space-x-1.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="text-slate-600 font-semibold">Estimated Margin / Profit:</span>
+                  </div>
+                  <div className="flex items-center space-x-2 font-mono">
+                    <span className={`font-extrabold ${
+                      ((parseFloat(sellingPrice) || 0) - (parseFloat(purchasingPrice) || 0)) >= 0
+                        ? 'text-emerald-700'
+                        : 'text-red-600'
+                    }`}>
+                      {currency} {((parseFloat(sellingPrice) || 0) - (parseFloat(purchasingPrice) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    {parseFloat(purchasingPrice) > 0 && parseFloat(sellingPrice) > 0 && (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        ((parseFloat(sellingPrice) || 0) - (parseFloat(purchasingPrice) || 0)) >= 0
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {((((parseFloat(sellingPrice) || 0) - (parseFloat(purchasingPrice) || 0)) / (parseFloat(purchasingPrice) || 1)) * 100).toFixed(1)}% Margin
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Payment Status Selector */}
+              <div>
+                <label className="font-bold text-slate-700 block mb-1.5 flex items-center space-x-1">
+                  <Wallet className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Payment Status</span>
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentStatus('Paid')}
+                    className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer border ${
+                      paymentStatus === 'Paid'
+                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-200'
+                        : 'bg-white text-slate-700 hover:bg-emerald-50 border-slate-300'
+                    }`}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Paid</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentStatus('Pending')}
+                    className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer border ${
+                      paymentStatus === 'Pending'
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-200'
+                        : 'bg-white text-slate-700 hover:bg-amber-50 border-slate-300'
+                    }`}
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Pending</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentStatus('Partially Paid')}
+                    className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer border ${
+                      paymentStatus === 'Partially Paid'
+                        ? 'bg-blue-600 text-white border-blue-700 shadow-xs ring-2 ring-blue-200'
+                        : 'bg-white text-slate-700 hover:bg-blue-50 border-slate-300'
+                    }`}
+                  >
+                    <Wallet className="w-3.5 h-3.5" />
+                    <span>Partially Paid</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="font-bold text-slate-700 block mb-1">Remarks / Internal Note</label>
@@ -1291,7 +2139,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold"
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold cursor-pointer"
             >
               Cancel
             </button>
@@ -1301,6 +2149,8 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
               className={`px-5 py-2 font-bold rounded-lg shadow-sm transition-colors flex items-center space-x-1 cursor-pointer text-white ${
                 duplicateMatch && !overrideDuplicate
                   ? 'bg-amber-600 hover:bg-amber-700'
+                  : isGroup
+                  ? 'bg-purple-700 hover:bg-purple-800 disabled:bg-slate-300'
                   : 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300'
               }`}
             >
@@ -1308,6 +2158,10 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
               <span>
                 {duplicateMatch && !overrideDuplicate
                   ? 'Blocked (Duplicate Record Found)'
+                  : isGroup
+                  ? editingVisa
+                    ? 'Update Group Visa Record'
+                    : `Save Group Visa (${groupApplicants.length} Applicants)`
                   : editingVisa
                   ? 'Update Visa Record'
                   : 'Save Visa Entry'}
@@ -1318,6 +2172,17 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         </form>
 
       </div>
+
+      {showBulkPasteModal && (
+        <BulkPasteVisaModal
+          isOpen={showBulkPasteModal}
+          onClose={() => setShowBulkPasteModal(false)}
+          defaultNationality={nationality || 'SRI LANKAN'}
+          onApplyApplicants={(parsed) => {
+            setGroupApplicants(parsed);
+          }}
+        />
+      )}
     </div>
   );
 };

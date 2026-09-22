@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TicketFollowup, VisaFollowup, ActivityComment, VisaStatus, TicketStatus, CompanyProfile, DEFAULT_COMPANY_PROFILE, VisaPaymentStatus } from './types';
+import { TicketFollowup, VisaFollowup, ActivityComment, VisaStatus, TicketStatus, CompanyProfile, DEFAULT_COMPANY_PROFILE, VisaPaymentStatus, TicketPaymentStatus } from './types';
 import { INITIAL_TICKETS, INITIAL_VISAS, INITIAL_COMMENTS } from './data/initialData';
 import { 
   subscribeToTickets, 
@@ -249,10 +249,33 @@ export default function App() {
     }
   };
 
+  const handleUpdateTicketPaymentStatus = (id: string, paymentStatus: TicketPaymentStatus) => {
+    let targetUpdated: TicketFollowup | undefined;
+    setTickets(prev => (Array.isArray(prev) ? prev : []).map(t => {
+      if (t.id === id) {
+        targetUpdated = { ...t, paymentStatus };
+        return targetUpdated;
+      }
+      return t;
+    }));
+    if (targetUpdated) {
+      if (detailModalTicket && detailModalTicket.id === id) {
+        setDetailModalTicket(targetUpdated);
+      }
+      saveTicketToFirestore(targetUpdated);
+    }
+  };
+
   // Visa CRUD operations
   const handleAddVisa = (newVisa: VisaFollowup) => {
     setVisas(prev => [newVisa, ...(Array.isArray(prev) ? prev : [])]);
     saveVisaToFirestore(newVisa);
+  };
+
+  const handleAddBatchVisas = (newVisas: VisaFollowup[]) => {
+    if (!newVisas || newVisas.length === 0) return;
+    setVisas(prev => [...newVisas, ...(Array.isArray(prev) ? prev : [])]);
+    newVisas.forEach(v => saveVisaToFirestore(v));
   };
 
   const handleUpdateVisa = (updatedVisa: VisaFollowup) => {
@@ -421,6 +444,7 @@ export default function App() {
             }}
             onDeleteTicket={handleDeleteTicket}
             onUpdateStatus={handleUpdateTicketStatus}
+            onUpdatePaymentStatus={handleUpdateTicketPaymentStatus}
             commentsCountMap={commentsCountMap}
           />
         )}
@@ -461,6 +485,8 @@ export default function App() {
             onOpenTicketDetails={(t) => setDetailModalTicket(t)}
             onOpenVisaDetails={(v) => setDetailModalVisa(v)}
             onNavigateTab={(tab) => setActiveTab(tab)}
+            onUpdateTicketPaymentStatus={handleUpdateTicketPaymentStatus}
+            onUpdateVisaPaymentStatus={handleUpdateVisaPaymentStatus}
           />
         )}
 
@@ -481,6 +507,7 @@ export default function App() {
             setDetailModalTicket(null);
             handleDeleteTicket(id);
           }}
+          onUpdatePaymentStatus={handleUpdateTicketPaymentStatus}
           companyProfile={companyProfile}
         />
       )}
@@ -553,6 +580,7 @@ export default function App() {
           setEditingVisa(null);
         }}
         onAddVisa={handleAddVisa}
+        onAddBatchVisas={handleAddBatchVisas}
         editingVisa={editingVisa}
         onUpdateVisa={handleUpdateVisa}
         recordedAgencies={recordedAgencies}
