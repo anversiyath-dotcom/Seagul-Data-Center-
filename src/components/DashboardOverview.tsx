@@ -17,7 +17,8 @@ interface DashboardOverviewProps {
   onSelectVisaStatusFilter: (status: VisaStatus) => void;
   onSelectTicketStatusFilter: (status: string) => void;
   onSelectVisaCategoryFilter?: (category: string) => void;
-  onNavigateTab: (tab: 'tickets' | 'visas' | 'accounting') => void;
+  onNavigateTab: (tab: 'tickets' | 'visas' | 'accounting' | 'tracker') => void;
+  onTrackPassenger?: (query: string) => void;
   onOpenTicketDetails?: (ticket: TicketFollowup) => void;
   onOpenVisaDetails?: (visa: VisaFollowup) => void;
 }
@@ -31,11 +32,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onSelectTicketStatusFilter,
   onSelectVisaCategoryFilter,
   onNavigateTab,
+  onTrackPassenger,
   onOpenTicketDetails,
   onOpenVisaDetails
 }) => {
   const [selectedExpiringDateFilter, setSelectedExpiringDateFilter] = useState<string>('ALL');
   const [copiedPassportId, setCopiedPassportId] = useState<string | null>(null);
+  const [quickTrackQuery, setQuickTrackQuery] = useState<string>('');
 
   const handleCopyPassport = (e: React.MouseEvent, passportNo: string, id: string) => {
     e.stopPropagation();
@@ -343,6 +346,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => onNavigateTab('tracker')}
+            className="flex items-center space-x-1.5 px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer ring-2 ring-blue-400/40"
+            title="Track any passenger by Full Name or Passport Number"
+          >
+            <UserCheck className="w-3.5 h-3.5 text-blue-200" />
+            <span>Passenger Record Tracker</span>
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </button>
+          <button
             onClick={() => onNavigateTab('tickets')}
             className="flex items-center space-x-1.5 px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer"
           >
@@ -366,6 +378,57 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <span>Financials & Net Profit</span>
             <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
+        </div>
+      </div>
+
+      {/* Quick Passenger & Passport Tracker Search Banner */}
+      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-4.5 rounded-2xl border border-blue-700/60 shadow-md">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start space-x-3">
+            <div className="p-2.5 bg-blue-500/20 text-blue-300 border border-blue-400/30 rounded-xl shrink-0">
+              <UserCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-blue-200">
+                  Overall Passenger & Record Tracker
+                </span>
+                <span className="bg-blue-500/30 text-blue-300 text-[10px] px-2 py-0.2 rounded-full font-mono border border-blue-400/30">
+                  Instant Verification
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Track by <strong>Full Name</strong> or <strong>Passport Number</strong> to immediately display all existing visas, air tickets, branch records, and balances.
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Search Form */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              onTrackPassenger?.(quickTrackQuery);
+              onNavigateTab('tracker');
+            }}
+            className="flex items-center gap-2 max-w-md w-full"
+          >
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={quickTrackQuery}
+                onChange={(e) => setQuickTrackQuery(e.target.value)}
+                placeholder="Full Name or Passport No (e.g. MOHAMED, N1234567)..."
+                className="w-full bg-slate-950/80 border border-blue-400/40 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 font-medium"
+              />
+            </div>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-xs transition-colors shrink-0 cursor-pointer flex items-center space-x-1"
+            >
+              <span>Track Record</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </form>
         </div>
       </div>
 

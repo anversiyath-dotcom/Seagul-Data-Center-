@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { TicketFollowup, TicketStatus, CustomerType, TicketPaymentStatus, Traveler, BranchOffice, BRANCH_CONFIG } from '../types';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { TicketFollowup, TicketStatus, CustomerType, TicketPaymentStatus, Traveler, BranchOffice, BRANCH_CONFIG, VisaFollowup } from '../types';
 import { 
   X, Plus, Plane, DollarSign, Building2, User, Calendar, MapPin, Luggage, 
   AlertTriangle, ExternalLink, Edit3, Save, Upload, FileText, Sparkles, 
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { normalizeGitHubUrl, normalizeToFullDate } from '../utils/imageUrlHelpers';
 import { isPaidPaymentStatus, isPartialPaymentStatus, isUnpaidPaymentStatus } from '../utils/paymentUtils';
+import { lookupExistingPassengerRecords } from '../utils/passengerTrackerHelpers';
 
 interface AddTicketModalProps {
   isOpen: boolean;
@@ -18,7 +19,9 @@ interface AddTicketModalProps {
   onUpdateTicket?: (ticket: TicketFollowup) => void;
   recordedAgencies?: string[];
   existingTickets?: TicketFollowup[];
+  existingVisas?: VisaFollowup[];
   onOpenExistingTicket?: (ticket: TicketFollowup) => void;
+  onOpenExistingVisa?: (visa: VisaFollowup) => void;
   defaultBranch?: BranchOffice;
 }
 
@@ -30,7 +33,9 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
   onUpdateTicket,
   recordedAgencies,
   existingTickets = [],
+  existingVisas = [],
   onOpenExistingTicket,
+  onOpenExistingVisa,
   defaultBranch = 'Negombo',
 }) => {
   const [branch, setBranch] = useState<BranchOffice>(editingTicket?.branch || defaultBranch || 'Negombo');
@@ -612,6 +617,30 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
 
   const duplicateMatch = findDuplicateTicket();
 
+  // Comprehensive cross-record lookup by Traveler Name or Passport
+  const existingPassengerLookup = useMemo(() => {
+    const primaryName = travelerName || (groupTravelers[0]?.name) || '';
+    const primaryPass = (groupTravelers[0] as any)?.passportNo || '';
+    return lookupExistingPassengerRecords({
+      fullName: primaryName,
+      passportNo: primaryPass,
+      visas: existingVisas,
+      tickets: existingTickets,
+      excludeTicketId: editingTicket?.id
+    });
+  }, [travelerName, groupTravelers, existingVisas, existingTickets, editingTicket]);
+
+  const handleAutofillPassengerFromExisting = () => {
+    if (!existingPassengerLookup.bestDossierMatch) return;
+    const match = existingPassengerLookup.bestDossierMatch;
+    if (match.fullName && !travelerName) {
+      setTravelerName(match.fullName);
+    }
+    if (match.customer && (!customer || customer === 'Seagull Global')) {
+      setCustomer(match.customer);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -967,6 +996,104 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
                     </button>
                   )}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Existing Passenger Records Detected Banner */}
+          {!duplicateMatch && existingPassengerLookup.found && (
+            <div className="p-4 rounded-xl border border-blue-300 bg-blue-50/80 text-blue-950 space-y-2.5 shadow-2xs">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center space-x-2 font-black text-xs text-blue-900 uppercase tracking-wide">
+                  <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Existing Passenger History Found in System</span>
+                </div>
+                <span className="text-[10px] font-bold bg-blue-200/80 text-blue-900 px-2 py-0.5 rounded-full">
+                  {existingPassengerLookup.matchingVisas.length} Visa(s), {existingPassengerLookup.matchingTickets.length} Ticket(s)
+                </span>
+              </div>
+
+              <div className="text-xs space-y-2 pl-6">
+                <p className="text-slate-700 font-medium">
+                  Existing historical records match this traveler by full name or passport:
+                </p>
+
+                {/* Existing Visas list */}
+                {existingPassengerLookup.matchingVisas.length > 0 && (
+                  <div className="bg-white p-2.5 rounded-lg border border-blue-200 space-y-1 text-[11px]">
+                    <div className="font-bold text-slate-800 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <FileText className="w-3 h-3 text-emerald-600" />
+                        <span>Previous Visas on file ({existingPassengerLookup.matchingVisas.length}):</span>
+                      </span>
+                    </div>
+                    {existingPassengerLookup.matchingVisas.map((v) => (
+                      <div key={v.id} className="flex items-center justify-between text-slate-600 border-t border-slate-100 pt-1">
+                        <span>{v.visaCategory} ({v.status}) - {v.branch || 'Branch'}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-500 font-mono">{v.passportNo}</span>
+                          {onOpenExistingVisa && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onClose();
+                                onOpenExistingVisa(v);
+                              }}
+                              className="text-emerald-700 hover:underline font-bold text-[10px] flex items-center gap-0.5"
+                            >
+                              <span>View Visa</span>
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Existing Tickets list */}
+                {existingPassengerLookup.matchingTickets.length > 0 && (
+                  <div className="bg-white p-2.5 rounded-lg border border-blue-200 space-y-1 text-[11px]">
+                    <div className="font-bold text-slate-800 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Plane className="w-3 h-3 text-blue-600" />
+                        <span>Previous Air Tickets on file ({existingPassengerLookup.matchingTickets.length}):</span>
+                      </span>
+                    </div>
+                    {existingPassengerLookup.matchingTickets.map(({ ticket: t }, idx) => (
+                      <div key={`${t.id}-${idx}`} className="flex items-center justify-between text-slate-600 border-t border-slate-100 pt-1">
+                        <span>{t.airline} ({t.departureLocation || 'CMB'} ➔ {t.arrivalLocation || 'DXB'}) - PNR: {t.pnr}</span>
+                        {onOpenExistingTicket && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onOpenExistingTicket(t);
+                            }}
+                            className="text-blue-700 hover:underline font-bold text-[10px] flex items-center gap-0.5"
+                          >
+                            <span>View Ticket</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 pl-6">
+                <span className="text-[10px] text-slate-500">
+                  Passenger recognized in database records.
+                </span>
+                <button
+                  type="button"
+                  onClick={handleAutofillPassengerFromExisting}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] rounded-lg shadow-2xs flex items-center space-x-1 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Autofill Passenger Info</span>
+                </button>
               </div>
             </div>
           )}

@@ -1,11 +1,11 @@
 import React from 'react';
-import { Plane, FileText, LayoutDashboard, Plus, Search, ArrowRightLeft, LogOut, User, Building2, Calculator, MapPin, ChevronDown } from 'lucide-react';
+import { Plane, FileText, LayoutDashboard, Plus, Search, ArrowRightLeft, LogOut, User, Building2, Calculator, MapPin, ChevronDown, UserCheck } from 'lucide-react';
 import { SeagullLogo } from './SeagullLogo';
 import { CompanyProfile, BranchFilter, BRANCH_CONFIG } from '../types';
 
 interface HeaderProps {
-  activeTab: 'dashboard' | 'tickets' | 'visas' | 'accounting';
-  setActiveTab: (tab: 'dashboard' | 'tickets' | 'visas' | 'accounting') => void;
+  activeTab: 'dashboard' | 'tickets' | 'visas' | 'accounting' | 'tracker';
+  setActiveTab: (tab: 'dashboard' | 'tickets' | 'visas' | 'accounting' | 'tracker') => void;
   searchTerm: string;
   setSearchTerm: (term: string) => void;
   onAddTicket: () => void;
@@ -73,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
           <nav className="flex items-center space-x-1 bg-slate-800/80 p-1 rounded-lg border border-slate-700/60 overflow-x-auto">
             <button
               onClick={() => setActiveTab('dashboard')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 cursor-pointer ${
                 activeTab === 'dashboard'
                   ? 'bg-blue-600 text-white shadow'
                   : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
@@ -85,7 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
 
             <button
               onClick={() => setActiveTab('tickets')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 cursor-pointer ${
                 activeTab === 'tickets'
                   ? 'bg-blue-600 text-white shadow'
                   : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
@@ -100,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
 
             <button
               onClick={() => setActiveTab('visas')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 cursor-pointer ${
                 activeTab === 'visas'
                   ? 'bg-blue-600 text-white shadow'
                   : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
@@ -115,7 +115,7 @@ export const Header: React.FC<HeaderProps> = ({
 
             <button
               onClick={() => setActiveTab('accounting')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 cursor-pointer ${
                 activeTab === 'accounting'
                   ? 'bg-blue-600 text-white shadow'
                   : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
@@ -123,6 +123,19 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Calculator className="w-3.5 h-3.5 text-emerald-400" />
               <span>Financials</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('tracker')}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 cursor-pointer ${
+                activeTab === 'tracker'
+                  ? 'bg-blue-600 text-white shadow ring-2 ring-blue-400/50'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+              }`}
+              title="Track by Full Name or Passport Number across all historical records"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-blue-300" />
+              <span>Record Tracker</span>
             </button>
           </nav>
 
@@ -176,14 +189,20 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Global Search & Action Buttons */}
           <div className="flex items-center space-x-2 shrink-0">
-            <div className="relative hidden xl:block w-48">
+            <div className="relative hidden xl:block w-52">
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search..."
+                placeholder="Track Name / Passport..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchTerm.trim()) {
+                    setActiveTab('tracker');
+                  }
+                }}
                 className="w-full bg-slate-800 text-slate-100 placeholder-slate-400 text-xs rounded-lg pl-8 pr-3 py-1.5 border border-slate-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                title="Type name or passport number and press Enter to track overall dossier"
               />
             </div>
 

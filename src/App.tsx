@@ -48,6 +48,7 @@ import { ConfirmModal } from './components/ConfirmModal';
 import { LoginScreen } from './components/LoginScreen';
 import { CompanySettingsModal } from './components/CompanySettingsModal';
 import { FinancialAccountingView } from './components/FinancialAccountingView';
+import { PassengerDossierTracker } from './components/PassengerDossierTracker';
 
 export default function App() {
   // Auth state - session based login screen
@@ -71,8 +72,9 @@ export default function App() {
   };
 
   // Navigation & View state
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'tickets' | 'visas' | 'accounting'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'tickets' | 'visas' | 'accounting' | 'tracker'>('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
+  const [trackerSearchQuery, setTrackerSearchQuery] = useState('');
 
   // Branch Office Filter state (All / Dubai / Negombo)
   const [selectedBranch, setSelectedBranch] = useState<BranchFilter>(() => {
@@ -626,8 +628,75 @@ export default function App() {
             onSelectTicketStatusFilter={(st) => setSelectedTicketStatusFilter(st)}
             onSelectVisaCategoryFilter={(cat) => setSelectedVisaCategoryFilter(cat)}
             onNavigateTab={(tab) => setActiveTab(tab)}
+            onTrackPassenger={(query) => {
+              setTrackerSearchQuery(query);
+              setActiveTab('tracker');
+            }}
             onOpenTicketDetails={(t) => setDetailModalTicket(t)}
             onOpenVisaDetails={(v) => setDetailModalVisa(v)}
+          />
+        )}
+
+        {activeTab === 'tracker' && (
+          <PassengerDossierTracker
+            visas={visas}
+            tickets={tickets}
+            initialSearchQuery={trackerSearchQuery || searchTerm}
+            selectedBranchFilter={selectedBranch}
+            companyProfile={companyProfile}
+            onOpenVisaDetails={(v) => setDetailModalVisa(v)}
+            onOpenTicketDetails={(t) => setDetailModalTicket(t)}
+            onAddNewVisaForPassenger={(name, passport) => {
+              const parts = name.trim().split(' ');
+              const firstName = parts[0] || '';
+              const lastName = parts.slice(1).join(' ') || '';
+              setEditingVisa({
+                id: `v-${Date.now()}`,
+                firstName,
+                lastName,
+                passportNo: passport,
+                passportExpiry: '',
+                nationality: 'SRI LANKAN',
+                visaCategory: selectedBranch === 'Dubai' ? '60 Days Single Entry' : '30 Days Single Entry',
+                entryDate: 'N/A',
+                status: 'In Process',
+                submissionDate: new Date().toLocaleDateString('en-GB'),
+                createdAt: new Date().toLocaleDateString('en-GB'),
+                branch: selectedBranch === 'Dubai' ? 'Dubai' : 'Negombo',
+              } as any);
+              setIsAddVisaOpen(true);
+            }}
+            onAddNewTicketForPassenger={(name, passport) => {
+              setEditingTicket({
+                id: `t-${Date.now()}`,
+                tickets: [],
+                customer: name,
+                supplier: selectedBranch === 'Dubai' ? 'Musafir B2B' : 'AeroConnect Ltd',
+                airline: selectedBranch === 'Dubai' ? 'Emirates' : 'SriLankan Airlines',
+                flightNo: selectedBranch === 'Dubai' ? 'EK 653' : 'UL 225',
+                status: 'Issued / Confirmed',
+                reissueCategory: 'Standard Reissue',
+                comment: 'New Flight Ticket issued for passenger',
+                requestDate: new Date().toLocaleDateString('en-GB'),
+                pnr: '',
+                totalRefundable: selectedBranch === 'Dubai' ? 1450 : 125000,
+                refundAmount: 0,
+                serviceFee: 0,
+                currency: selectedBranch === 'Dubai' ? 'AED' : 'LKR',
+                timeline: [],
+                refundReason: 'Flight Ticket Booking',
+                createdAt: new Date().toLocaleDateString('en-GB'),
+                travelers: [{
+                  id: `trv-${Date.now()}`,
+                  name: name,
+                  ticketNo: '',
+                  passportNo: passport
+                }],
+                itinerary: [],
+                branch: selectedBranch === 'Dubai' ? 'Dubai' : 'Negombo'
+              });
+              setIsAddTicketOpen(true);
+            }}
           />
         )}
 
@@ -785,10 +854,16 @@ export default function App() {
         onUpdateTicket={handleUpdateTicket}
         recordedAgencies={recordedAgencies}
         existingTickets={tickets}
+        existingVisas={visas}
         onOpenExistingTicket={(ticket) => {
           setIsAddTicketOpen(false);
           setActiveTab('tickets');
           setDetailModalTicket(ticket);
+        }}
+        onOpenExistingVisa={(visa) => {
+          setIsAddTicketOpen(false);
+          setActiveTab('visas');
+          setDetailModalVisa(visa);
         }}
         defaultBranch={selectedBranch === 'Dubai' ? 'Dubai' : 'Negombo'}
       />
@@ -805,11 +880,16 @@ export default function App() {
         onUpdateVisa={handleUpdateVisa}
         recordedAgencies={recordedAgencies}
         existingVisas={visas}
+        existingTickets={tickets}
         onOpenExistingVisa={(visa) => {
           setIsAddVisaOpen(false);
           setActiveTab('visas');
-          setCommentsModalItem(visa);
-          setCommentsTargetType('visa');
+          setDetailModalVisa(visa);
+        }}
+        onOpenExistingTicket={(ticket) => {
+          setIsAddVisaOpen(false);
+          setActiveTab('tickets');
+          setDetailModalTicket(ticket);
         }}
         defaultBranch={selectedBranch === 'Dubai' ? 'Dubai' : 'Negombo'}
       />

@@ -1,15 +1,16 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   VisaFollowup, VisaStatus, CustomerType, VisaPaymentStatus, VISA_CATEGORIES, 
   VisaGroupMember, BranchOffice, BRANCH_CONFIG, getCategoriesForBranch, 
-  DUBAI_SERVICES_CATEGORIES, SRI_LANKA_VISA_CATEGORIES 
+  DUBAI_SERVICES_CATEGORIES, SRI_LANKA_VISA_CATEGORIES, TicketFollowup 
 } from '../types';
-import { X, FileText, Upload, Sparkles, Loader2, CheckCircle2, AlertCircle, Trash2, Eye, Calendar, Building2, User, AlertTriangle, ExternalLink, DollarSign, Wallet, Check, Clock, TrendingUp, Tag, Percent, Link, ScanLine, Globe, Users, Plus, ClipboardList, Camera, MapPin } from 'lucide-react';
+import { X, FileText, Upload, Sparkles, Loader2, CheckCircle2, AlertCircle, Trash2, Eye, Calendar, Building2, User, AlertTriangle, ExternalLink, DollarSign, Wallet, Check, Clock, TrendingUp, Tag, Percent, Link, ScanLine, Globe, Users, Plus, ClipboardList, Camera, MapPin, Plane, ArrowRight } from 'lucide-react';
 import { calculateVisaExpiryDate, getVisaDurationDays, normalizeToFullDate } from '../utils/helpers';
 import { normalizeGitHubUrl, isValidUrl, parsePassportMRZ } from '../utils/imageUrlHelpers';
 import { GroupVisaApplicantsSection } from './GroupVisaApplicantsSection';
 import { BulkPasteVisaModal, GroupApplicantItem } from './BulkPasteVisaModal';
 import { NationalitySelect } from './NationalitySelect';
+import { lookupExistingPassengerRecords } from '../utils/passengerTrackerHelpers';
 
 interface AddVisaModalProps {
   isOpen: boolean;
@@ -20,7 +21,9 @@ interface AddVisaModalProps {
   onUpdateVisa?: (visa: VisaFollowup) => void;
   recordedAgencies?: string[];
   existingVisas?: VisaFollowup[];
+  existingTickets?: TicketFollowup[];
   onOpenExistingVisa?: (visa: VisaFollowup) => void;
+  onOpenExistingTicket?: (ticket: TicketFollowup) => void;
   defaultBranch?: BranchOffice;
 }
 
@@ -33,7 +36,9 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
   onUpdateVisa,
   recordedAgencies,
   existingVisas = [],
+  existingTickets = [],
   onOpenExistingVisa,
+  onOpenExistingTicket,
   defaultBranch = 'Negombo',
 }) => {
   const [branch, setBranch] = useState<BranchOffice>(editingVisa?.branch || defaultBranch || 'Negombo');
@@ -211,6 +216,36 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
   };
 
   const duplicateMatch = findDuplicateVisa();
+
+  // Comprehensive cross-record lookup by Full Name or Passport Number
+  const existingPassengerLookup = useMemo(() => {
+    return lookupExistingPassengerRecords({
+      fullName: `${firstName} ${lastName}`.trim(),
+      passportNo: passportNo,
+      visas: existingVisas,
+      tickets: existingTickets,
+      excludeVisaId: editingVisa?.id
+    });
+  }, [firstName, lastName, passportNo, existingVisas, existingTickets, editingVisa]);
+
+  const handleAutofillFromExistingRecord = () => {
+    if (!existingPassengerLookup.bestDossierMatch) return;
+    const match = existingPassengerLookup.bestDossierMatch;
+    if (match.nationality) setNationality(match.nationality);
+    if (match.passportExpiry) setPassportExpiry(match.passportExpiry);
+    if (match.dob) setDob(match.dob);
+    if (match.unifiedNumber) setUnifiedNumber(match.unifiedNumber);
+    if (match.icpFileNo) setIcpFileNo(match.icpFileNo);
+    if (match.customer) setCustomer(match.customer);
+    if (match.photoAttachment && !photoAttachment) {
+      setPhotoAttachment(match.photoAttachment);
+      setPhotoFileName('Photo_from_Existing_Record.jpg');
+    }
+    if (match.passportAttachment && !passportAttachment) {
+      setPassportAttachment(match.passportAttachment);
+      setPassportFileName('Passport_from_Existing_Record.jpg');
+    }
+  };
   
   // Attachments state
   const [passportAttachment, setPassportAttachment] = useState<string | undefined>(editingVisa?.passportAttachment);
@@ -1278,19 +1313,128 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
                 <span className="text-[10px] text-slate-600 font-medium">
                   System prevents duplicate visa applications. Please view existing record or check override box if intentional.
                 </span>
-                {onOpenExistingVisa && (
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      onClose();
-                      onOpenExistingVisa(duplicateMatch.visa);
-                    }}
-                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-lg shadow-2xs flex items-center space-x-1 cursor-pointer"
+                    onClick={handleAutofillFromExistingRecord}
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] rounded-lg shadow-2xs flex items-center space-x-1 cursor-pointer"
+                    title="Autofill nationality, passport expiry, and client details from existing record"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>View / Edit Existing Visa</span>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Autofill Details from Existing Record</span>
                   </button>
+                  {onOpenExistingVisa && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenExistingVisa(duplicateMatch.visa);
+                      }}
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-lg shadow-2xs flex items-center space-x-1 cursor-pointer"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>View / Edit Existing Visa</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Existing Passenger Record Found Banner (when not hard duplicate) */}
+          {!duplicateMatch && existingPassengerLookup.found && (
+            <div className="p-4 rounded-xl border border-blue-300 bg-blue-50/80 text-blue-950 space-y-2.5 shadow-2xs">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center space-x-2 font-black text-xs text-blue-900 uppercase tracking-wide">
+                  <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Existing Record Found in System</span>
+                </div>
+                <span className="text-[10px] font-bold bg-blue-200/80 text-blue-900 px-2 py-0.5 rounded-full">
+                  {existingPassengerLookup.matchingVisas.length} Visa(s), {existingPassengerLookup.matchingTickets.length} Ticket(s)
+                </span>
+              </div>
+
+              <div className="text-xs space-y-2 pl-6">
+                <p className="text-slate-700 font-medium">
+                  Existing historical records match this traveler by full name or passport number:
+                </p>
+
+                {/* Existing Visas list */}
+                {existingPassengerLookup.matchingVisas.length > 0 && (
+                  <div className="bg-white p-2.5 rounded-lg border border-blue-200 space-y-1 text-[11px]">
+                    <div className="font-bold text-slate-800 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <FileText className="w-3 h-3 text-emerald-600" />
+                        <span>Previous Visas on file ({existingPassengerLookup.matchingVisas.length}):</span>
+                      </span>
+                    </div>
+                    {existingPassengerLookup.matchingVisas.map((v) => (
+                      <div key={v.id} className="flex items-center justify-between text-slate-600 border-t border-slate-100 pt-1">
+                        <span>{v.visaCategory} ({v.status}) - {v.branch || 'Branch'}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-500 font-mono">{v.passportNo}</span>
+                          {onOpenExistingVisa && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onClose();
+                                onOpenExistingVisa(v);
+                              }}
+                              className="text-blue-600 hover:underline font-bold text-[10px] flex items-center gap-0.5"
+                            >
+                              <span>View</span>
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
+
+                {/* Existing Tickets list */}
+                {existingPassengerLookup.matchingTickets.length > 0 && (
+                  <div className="bg-white p-2.5 rounded-lg border border-blue-200 space-y-1 text-[11px]">
+                    <div className="font-bold text-slate-800 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Plane className="w-3 h-3 text-blue-600" />
+                        <span>Previous Air Tickets on file ({existingPassengerLookup.matchingTickets.length}):</span>
+                      </span>
+                    </div>
+                    {existingPassengerLookup.matchingTickets.map(({ ticket: t }, idx) => (
+                      <div key={`${t.id}-${idx}`} className="flex items-center justify-between text-slate-600 border-t border-slate-100 pt-1">
+                        <span>{t.airline} ({t.departureLocation || 'CMB'} ➔ {t.arrivalLocation || 'DXB'}) - PNR: {t.pnr}</span>
+                        {onOpenExistingTicket && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onOpenExistingTicket(t);
+                            }}
+                            className="text-blue-600 hover:underline font-bold text-[10px] flex items-center gap-0.5"
+                          >
+                            <span>View Ticket</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 pl-6">
+                <span className="text-[10px] text-slate-500">
+                  You can autofill identity details from their previous records with 1 click.
+                </span>
+                <button
+                  type="button"
+                  onClick={handleAutofillFromExistingRecord}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] rounded-lg shadow-2xs flex items-center space-x-1 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Autofill Details from Existing Record</span>
+                </button>
               </div>
             </div>
           )}

@@ -119,6 +119,7 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
   const [selectedSupplier, setSelectedSupplier] = useState<string>('ALL');
   const [selectedPaymentStatus, setSelectedPaymentStatus] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [deleteConfirmExpenseId, setDeleteConfirmExpenseId] = useState<string | null>(null);
 
   // Handle preset clicks
   const handlePresetSelect = (presetId: string) => {
@@ -1743,17 +1744,35 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Are you sure you want to delete expense "${exp.title}"?`)) {
-                                onDeleteExpense?.(exp.id);
-                              }
-                            }}
-                            className="p-1 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                            title="Delete expense"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {deleteConfirmExpenseId === exp.id ? (
+                            <div className="flex items-center space-x-1">
+                              <button
+                                onClick={() => {
+                                  onDeleteExpense?.(exp.id);
+                                  setDeleteConfirmExpenseId(null);
+                                }}
+                                className="px-1.5 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-[10px] font-bold cursor-pointer"
+                                title="Confirm deletion"
+                              >
+                                Delete
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirmExpenseId(null)}
+                                className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] font-bold cursor-pointer"
+                                title="Cancel"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setDeleteConfirmExpenseId(exp.id)}
+                              className="p-1 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                              title="Delete expense"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
