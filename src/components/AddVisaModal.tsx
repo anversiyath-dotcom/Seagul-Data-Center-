@@ -1,10 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { VisaFollowup, VisaStatus, CustomerType, VisaPaymentStatus, VISA_CATEGORIES, VisaGroupMember } from '../types';
-import { X, FileText, Upload, Sparkles, Loader2, CheckCircle2, AlertCircle, Trash2, Eye, Calendar, Building2, User, AlertTriangle, ExternalLink, DollarSign, Wallet, Check, Clock, TrendingUp, Tag, Percent, Link, ScanLine, Globe, Users, Plus, ClipboardList } from 'lucide-react';
-import { calculateVisaExpiryDate, getVisaDurationDays } from '../utils/helpers';
+import { 
+  VisaFollowup, VisaStatus, CustomerType, VisaPaymentStatus, VISA_CATEGORIES, 
+  VisaGroupMember, BranchOffice, BRANCH_CONFIG, getCategoriesForBranch, 
+  DUBAI_SERVICES_CATEGORIES, SRI_LANKA_VISA_CATEGORIES 
+} from '../types';
+import { X, FileText, Upload, Sparkles, Loader2, CheckCircle2, AlertCircle, Trash2, Eye, Calendar, Building2, User, AlertTriangle, ExternalLink, DollarSign, Wallet, Check, Clock, TrendingUp, Tag, Percent, Link, ScanLine, Globe, Users, Plus, ClipboardList, Camera, MapPin } from 'lucide-react';
+import { calculateVisaExpiryDate, getVisaDurationDays, normalizeToFullDate } from '../utils/helpers';
 import { normalizeGitHubUrl, isValidUrl, parsePassportMRZ } from '../utils/imageUrlHelpers';
 import { GroupVisaApplicantsSection } from './GroupVisaApplicantsSection';
 import { BulkPasteVisaModal, GroupApplicantItem } from './BulkPasteVisaModal';
+import { NationalitySelect } from './NationalitySelect';
 
 interface AddVisaModalProps {
   isOpen: boolean;
@@ -16,6 +21,7 @@ interface AddVisaModalProps {
   recordedAgencies?: string[];
   existingVisas?: VisaFollowup[];
   onOpenExistingVisa?: (visa: VisaFollowup) => void;
+  defaultBranch?: BranchOffice;
 }
 
 export const AddVisaModal: React.FC<AddVisaModalProps> = ({
@@ -27,8 +33,10 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
   onUpdateVisa,
   recordedAgencies,
   existingVisas = [],
-  onOpenExistingVisa
+  onOpenExistingVisa,
+  defaultBranch = 'Negombo',
 }) => {
+  const [branch, setBranch] = useState<BranchOffice>(editingVisa?.branch || defaultBranch || 'Negombo');
   const [lastName, setLastName] = useState(editingVisa?.lastName || '');
   const [firstName, setFirstName] = useState(editingVisa?.firstName || '');
   const [passportNo, setPassportNo] = useState(editingVisa?.passportNo || '');
@@ -37,7 +45,9 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
   const [destinationCountry, setDestinationCountry] = useState(editingVisa?.destinationCountry || 'United Arab Emirates (UAE)');
   const [unifiedNumber, setUnifiedNumber] = useState(editingVisa?.unifiedNumber || '');
   const [dob, setDob] = useState(editingVisa?.dob || '');
-  const [visaCategory, setVisaCategory] = useState(editingVisa?.visaCategory || '30 Days Single Entry');
+  const [visaCategory, setVisaCategory] = useState(
+    editingVisa?.visaCategory || (defaultBranch === 'Dubai' ? 'Golden Visa - Skilled Worker' : '30 Days Single Entry')
+  );
   const [entryDate, setEntryDate] = useState(editingVisa?.entryDate || '');
   const [expiryDate, setExpiryDate] = useState(editingVisa?.expiryDate || '');
   const [status, setStatus] = useState<VisaStatus | ''>(editingVisa?.status || '');
@@ -207,6 +217,8 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
   const [passportFileName, setPassportFileName] = useState<string | undefined>(editingVisa?.passportFileName);
   const [visaAttachment, setVisaAttachment] = useState<string | undefined>(editingVisa?.visaAttachment);
   const [visaFileName, setVisaFileName] = useState<string | undefined>(editingVisa?.visaFileName);
+  const [photoAttachment, setPhotoAttachment] = useState<string | undefined>(editingVisa?.photoAttachment);
+  const [photoFileName, setPhotoFileName] = useState<string | undefined>(editingVisa?.photoFileName);
 
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -221,11 +233,13 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
 
   const passportInputRef = useRef<HTMLInputElement | null>(null);
   const visaInputRef = useRef<HTMLInputElement | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   // Sync state whenever editingVisa changes or modal opens
   useEffect(() => {
     if (isOpen) {
       if (editingVisa) {
+        setBranch(editingVisa.branch || defaultBranch || 'Dubai');
         setLastName(editingVisa.lastName || '');
         setFirstName(editingVisa.firstName || '');
         setPassportNo(editingVisa.passportNo || '');
@@ -251,6 +265,8 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         setPassportFileName(editingVisa.passportFileName);
         setVisaAttachment(editingVisa.visaAttachment);
         setVisaFileName(editingVisa.visaFileName);
+        setPhotoAttachment(editingVisa.photoAttachment);
+        setPhotoFileName(editingVisa.photoFileName);
         setOverrideDuplicate(false);
         setShowDuplicateError(false);
         setScanStatus(null);
@@ -305,6 +321,8 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
           ]);
         }
       } else {
+        const initialBranch = defaultBranch || 'Negombo';
+        setBranch(initialBranch);
         setLastName('');
         setFirstName('');
         setPassportNo('');
@@ -313,7 +331,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         setDestinationCountry('United Arab Emirates (UAE)');
         setUnifiedNumber('');
         setDob('');
-        setVisaCategory('30 Days Single Entry');
+        setVisaCategory(initialBranch === 'Dubai' ? 'Golden Visa - Skilled Worker' : '30 Days Single Entry');
         setEntryDate('');
         setExpiryDate('');
         setStatus('In Process');
@@ -321,15 +339,17 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         setCustomerType('Agency');
         setRemarks('');
         setIcpFileNo('');
-        setSupplier('Musafir B2B');
+        setSupplier(initialBranch === 'Dubai' ? 'Musafir B2B' : 'Rayna Tours');
         setPurchasingPrice('');
         setSellingPrice('');
         setPaymentStatus('Pending');
-        setCurrency('AED');
+        setCurrency(initialBranch === 'Dubai' ? 'AED' : 'LKR');
         setPassportAttachment(undefined);
         setPassportFileName(undefined);
         setVisaAttachment(undefined);
         setVisaFileName(undefined);
+        setPhotoAttachment(undefined);
+        setPhotoFileName(undefined);
         setOverrideDuplicate(false);
         setShowDuplicateError(false);
         setScanStatus(null);
@@ -391,12 +411,10 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
   // Convert DD/MM/YYYY to YYYY-MM-DD for native date picker input helper
   const getNativeEntryDate = (): string => {
     if (!entryDate || entryDate === 'N/A') return '';
-    const parts = entryDate.trim().split(/[/.-]/);
-    if (parts.length === 3 && parts[0].length <= 2 && parts[2].length === 4) {
-      const d = parts[0].padStart(2, '0');
-      const m = parts[1].padStart(2, '0');
-      const y = parts[2];
-      return `${y}-${m}-${d}`;
+    const normalized = normalizeToFullDate(entryDate);
+    const parts = normalized.split('/');
+    if (parts.length === 3) {
+      return `${parts[2]}-${parts[1]}-${parts[0]}`;
     }
     return '';
   };
@@ -429,27 +447,36 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
     const newLast = extractedLast ? extractedLast.toUpperCase() : lastName;
     const newFirst = extractedFirst ? extractedFirst.toUpperCase() : firstName;
     const newPass = extractedPass ? extractedPass.toUpperCase() : passportNo;
-    const newExp = extractedExp || passportExpiry;
+    const newExp = normalizeToFullDate(extractedExp || passportExpiry);
     const newNat = extractedNat ? extractedNat.toUpperCase() : nationality;
-    const newDob = extractedDob || dob;
+    const newDob = normalizeToFullDate(extractedDob || dob, true);
     const newUid = extractedUid || unifiedNumber;
     const newFileNo = extractedFileNo || icpFileNo;
-    const newEntry = extractedEntry || entryDate;
-    let newExpiry = extractedExpiry || expiryDate;
+    const newEntry = normalizeToFullDate(extractedEntry || entryDate);
+    let newExpiry = normalizeToFullDate(extractedExpiry || expiryDate);
     const newCat = extractedCat || visaCategory;
     let newStatusVal = extractedStatus || status;
 
     if (extractedLast) setLastName(newLast);
     if (extractedFirst) setFirstName(newFirst);
     if (extractedPass) setPassportNo(newPass);
-    if (extractedExp) setPassportExpiry(newExp);
+    if (newExp) setPassportExpiry(newExp);
     if (extractedNat) setNationality(newNat);
-    if (extractedDob) setDob(newDob);
+    if (newDob) setDob(newDob);
     if (extractedUid) setUnifiedNumber(newUid);
     if (extractedFileNo) setIcpFileNo(newFileNo);
-    if (extractedEntry) setEntryDate(newEntry);
-    if (extractedExpiry) setExpiryDate(newExpiry);
+    if (newEntry) setEntryDate(newEntry);
+    if (newExpiry) setExpiryDate(newExpiry);
     if (extractedCat) setVisaCategory(newCat);
+
+    // If entry date is present and visa category is known, calculate expiry if not present
+    if (newEntry && newCat && (!newExpiry || newExpiry === 'N/A')) {
+      const autoCalculated = calculateVisaExpiryDate(newEntry, newCat);
+      if (autoCalculated) {
+        newExpiry = autoCalculated;
+        setExpiryDate(autoCalculated);
+      }
+    }
 
     // Trigger automated ICP validity verification
     try {
@@ -472,7 +499,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
       const checkJson = await checkRes.json();
       if (checkJson.success && checkJson.data) {
         if (checkJson.data.calculatedExpiryDate) {
-          newExpiry = checkJson.data.calculatedExpiryDate;
+          newExpiry = normalizeToFullDate(checkJson.data.calculatedExpiryDate);
           setExpiryDate(newExpiry);
         }
         if (checkJson.data.recommendedStatus) {
@@ -763,6 +790,29 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
     }
   };
 
+  const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file (JPEG, PNG, WebP).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPhotoAttachment(reader.result as string);
+      setPhotoFileName(file.name);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemovePhotoAttachment = () => {
+    setPhotoAttachment(undefined);
+    setPhotoFileName(undefined);
+    if (photoInputRef.current) {
+      photoInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -846,6 +896,8 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
           passportFileName,
           visaAttachment,
           visaFileName,
+          photoAttachment,
+          photoFileName,
           icpFileNo: validApplicants[0].icpFileNo || icpFileNo || undefined,
 
           isGroup: true,
@@ -898,6 +950,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
           pricingMode,
           costPerPax: costPax,
           sellingPerPax: sellPax,
+          branch: branch,
         }));
 
         if (onAddBatchVisas) {
@@ -942,8 +995,11 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         passportFileName,
         visaAttachment,
         visaFileName,
+        photoAttachment,
+        photoFileName,
         icpFileNo: icpFileNo || undefined,
         isGroup: false,
+        branch: branch,
       });
     } else {
       const newVisa: VisaFollowup = {
@@ -973,9 +1029,12 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         passportFileName,
         visaAttachment,
         visaFileName,
+        photoAttachment,
+        photoFileName,
         icpFileNo: icpFileNo || undefined,
         createdAt: new Date().toISOString(),
         isGroup: false,
+        branch: branch,
       };
       onAddVisa(newVisa);
     }
@@ -1086,6 +1145,79 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
               </button>
             </div>
           )}
+        </div>
+
+        {/* Branch Office Selector Bar */}
+        <div className="bg-gradient-to-r from-emerald-50/60 via-slate-50 to-blue-50/60 border-b border-slate-200 px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <span className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+              <Building2 className="w-4 h-4 text-blue-600" />
+              <span>Issuing Branch Office</span>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${
+                branch === 'Dubai' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-blue-100 text-blue-800 border border-blue-300'
+              }`}>
+                {branch === 'Dubai' ? '🇦🇪 UAE Branch' : '🇱🇰 Sri Lanka Branch'}
+              </span>
+            </span>
+            <span className="text-[11px] text-slate-500 block mt-0.5">
+              Select which company office is processing and recording this visa entry
+            </span>
+          </div>
+
+          <div className="inline-flex bg-white p-1 rounded-xl border-2 border-slate-300 shadow-sm shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setBranch('Dubai');
+                if (!editingVisa) {
+                  setCurrency('AED');
+                  setDestinationCountry('United Arab Emirates (UAE)');
+                  if (!DUBAI_SERVICES_CATEGORIES.includes(visaCategory as any)) {
+                    setVisaCategory('Golden Visa - Skilled Worker');
+                  }
+                }
+              }}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+                branch === 'Dubai'
+                  ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400'
+                  : 'text-slate-700 hover:bg-emerald-50 hover:text-emerald-800'
+              }`}
+            >
+              <span className="text-base">🇦🇪</span>
+              <div className="text-left leading-tight">
+                <div className="font-extrabold">Dubai Branch</div>
+                <div className={`text-[9px] ${branch === 'Dubai' ? 'text-emerald-100' : 'text-slate-400'}`}>
+                  Coastal Bldg, Al Tawar
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBranch('Negombo');
+                if (!editingVisa) {
+                  setCurrency('LKR');
+                  if (!SRI_LANKA_VISA_CATEGORIES.includes(visaCategory as any)) {
+                    setVisaCategory('30 Days Single Entry');
+                  }
+                }
+              }}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+                branch === 'Negombo'
+                  ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-400'
+                  : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800'
+              }`}
+            >
+              <span className="text-base">🇱🇰</span>
+              <div className="text-left leading-tight">
+                <div className="font-extrabold">Negombo Branch</div>
+                <div className={`text-[9px] ${branch === 'Negombo' ? 'text-blue-100' : 'text-slate-400'}`}>
+                  Sri Lanka Head Office
+                </div>
+              </div>
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
@@ -1226,6 +1358,13 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
 
             <input
               type="file"
+              ref={photoInputRef}
+              onChange={handlePhotoFileChange}
+              accept="image/*"
+              className="hidden"
+            />
+            <input
+              type="file"
               ref={passportInputRef}
               onChange={handlePassportFileChange}
               accept="image/*,.pdf"
@@ -1239,7 +1378,67 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
               className="hidden"
             />
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {/* Applicant Photo Attachment Box (Passport Size for Receipt) */}
+              <div className="bg-white border border-slate-200 rounded-lg p-2.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-700 text-[11px] flex items-center space-x-1">
+                    <Camera className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Applicant Photo</span>
+                  </span>
+                  {photoAttachment && (
+                    <button
+                      type="button"
+                      onClick={handleRemovePhotoAttachment}
+                      className="text-red-600 hover:text-red-700 font-semibold text-[10px] flex items-center space-x-0.5 cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Remove</span>
+                    </button>
+                  )}
+                </div>
+
+                {!photoAttachment ? (
+                  <div
+                    onClick={() => photoInputRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                        const file = e.dataTransfer.files[0];
+                        if (file.type.startsWith('image/')) {
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            setPhotoAttachment(reader.result as string);
+                            setPhotoFileName(file.name);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }
+                    }}
+                    className="border-2 border-dashed border-purple-200 hover:border-purple-400 bg-purple-50/50 rounded-lg p-2.5 text-center cursor-pointer transition-colors"
+                  >
+                    <p className="font-bold text-purple-700 text-[11px]">Upload Photo</p>
+                    <p className="text-[9px] text-slate-400">For Customer Receipt</p>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2 bg-slate-50 p-1.5 rounded border border-slate-200">
+                    <img src={photoAttachment} alt="Applicant Photo" className="w-9 h-9 object-cover rounded shrink-0 border border-slate-300" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-slate-800 text-[10px] truncate">{photoFileName || 'Applicant_Photo.jpg'}</p>
+                      <span className="text-[9px] text-purple-600 font-semibold">For Receipt</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => photoInputRef.current?.click()}
+                      className="px-1.5 py-0.5 bg-white border border-slate-200 text-slate-700 rounded text-[9px] font-semibold cursor-pointer hover:bg-slate-100"
+                    >
+                      Change
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Passport Copy Attachment Box */}
               <div className="bg-white border border-slate-200 rounded-lg p-2.5 space-y-2">
                 <div className="flex items-center justify-between">
@@ -1599,13 +1798,14 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
           {/* Additional Person / Visa Identifiers: Nationality, Date of Birth, Unified Number & ICP File No */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Nationality / Citizenship</label>
-              <input
-                type="text"
+              <label className="font-bold text-slate-700 block mb-1">
+                Nationality / Citizenship
+              </label>
+              <NationalitySelect
                 value={nationality}
-                onChange={(e) => setNationality(e.target.value)}
-                placeholder="e.g. SRI LANKAN, INDIAN"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-bold uppercase text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                onChange={setNationality}
+                showQuickPills={true}
+                showCustomToggle={true}
               />
             </div>
 
@@ -1696,28 +1896,39 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Visa Category</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-700 block text-xs sm:text-sm">
+                  {branch === 'Dubai' ? 'Services / Visa Category' : 'Visa Category'}
+                </label>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                  branch === 'Dubai' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-blue-100 text-blue-800 border-blue-300'
+                }`}>
+                  {branch === 'Dubai' ? '🇦🇪 Dubai Services' : '🇱🇰 Sri Lanka Visas'}
+                </span>
+              </div>
               <select
                 value={visaCategory}
                 onChange={(e) => handleCategoryChange(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer text-xs sm:text-sm"
               >
-                {VISA_CATEGORIES.map((cat) => (
+                {getCategoriesForBranch(branch).map((cat) => (
                   <option key={cat} value={cat}>
                     {cat}
                   </option>
                 ))}
               </select>
-              <div className="flex flex-wrap gap-1 mt-1.5">
-                {VISA_CATEGORIES.map((cat) => (
+              <div className="flex flex-wrap gap-1 mt-1.5 max-h-36 overflow-y-auto p-1.5 bg-slate-50 border border-slate-200 rounded-lg">
+                {getCategoriesForBranch(branch).map((cat) => (
                   <button
                     key={cat}
                     type="button"
                     onClick={() => handleCategoryChange(cat)}
-                    className={`text-[10px] px-2 py-0.5 rounded font-semibold transition-colors cursor-pointer border ${
+                    className={`text-[10px] px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer border ${
                       visaCategory === cat
-                        ? 'bg-blue-600 text-white border-blue-600 font-bold shadow-2xs'
-                        : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-200'
+                        ? branch === 'Dubai'
+                          ? 'bg-emerald-600 text-white border-emerald-600 font-extrabold shadow-xs ring-1 ring-emerald-400'
+                          : 'bg-blue-600 text-white border-blue-600 font-extrabold shadow-xs ring-1 ring-blue-400'
+                        : 'bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 border-slate-200'
                     }`}
                   >
                     {cat}

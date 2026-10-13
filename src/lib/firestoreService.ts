@@ -9,14 +9,28 @@ import {
   writeBatch 
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { TicketFollowup, VisaFollowup, ActivityComment, CompanyProfile, DEFAULT_COMPANY_PROFILE } from '../types';
+import { TicketFollowup, VisaFollowup, ActivityComment, CompanyProfile, DEFAULT_COMPANY_PROFILE, ExpenseItem } from '../types';
 
 const TICKETS_COLLECTION = 'tickets';
 const VISAS_COLLECTION = 'visas';
 const COMMENTS_COLLECTION = 'comments';
+const EXPENSES_COLLECTION = 'expenses';
 const SETTINGS_COLLECTION = 'settings';
 const COMPANY_PROFILE_DOC = 'companyProfile';
 const SYSTEM_INIT_DOC = 'systemInit';
+
+// Subscriptions for real-time live sync
+export function subscribeToExpenses(onUpdate: (expenses: ExpenseItem[]) => void) {
+  return onSnapshot(collection(db, EXPENSES_COLLECTION), (snapshot) => {
+    const list: ExpenseItem[] = [];
+    snapshot.forEach((doc) => {
+      list.push(doc.data() as ExpenseItem);
+    });
+    onUpdate(list);
+  }, (error) => {
+    console.error("Firestore expenses sync error:", error);
+  });
+}
 
 // Subscriptions for real-time live sync
 export function subscribeToTickets(onUpdate: (tickets: TicketFollowup[]) => void) {
@@ -122,6 +136,24 @@ export async function deleteVisaFromFirestore(id: string) {
   }
 }
 
+export async function saveExpenseToFirestore(expense: ExpenseItem) {
+  try {
+    const docRef = doc(db, EXPENSES_COLLECTION, expense.id);
+    await setDoc(docRef, cleanUndefined(expense), { merge: true });
+  } catch (error) {
+    console.error("Error saving expense to Firestore:", error);
+  }
+}
+
+export async function deleteExpenseFromFirestore(id: string) {
+  try {
+    const docRef = doc(db, EXPENSES_COLLECTION, id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    console.error("Error deleting expense from Firestore:", error);
+  }
+}
+
 export async function saveCommentToFirestore(comment: ActivityComment) {
   try {
     const docRef = doc(db, COMMENTS_COLLECTION, comment.id);
@@ -154,6 +186,43 @@ export async function checkAndSeedInitialDataIfNeeded(
   }
 }
 
+// Assign all existing records to Sri Lanka branch (Negombo) so Dubai branch starts 100% clean
+export async function ensureDubaiBranchEmptyAndAssignAllToSriLanka() {
+  try {
+    // 1. Tickets: update any ticket without branch or with branch === 'Dubai' to 'Negombo'
+    const ticketSnap = await getDocs(collection(db, TICKETS_COLLECTION));
+    const ticketBatch = writeBatch(db);
+    let ticketCount = 0;
+    ticketSnap.forEach((d) => {
+      const data = d.data() as TicketFollowup;
+      if (data.branch !== 'Negombo') {
+        ticketBatch.update(d.ref, { branch: 'Negombo' });
+        ticketCount++;
+      }
+    });
+    if (ticketCount > 0) {
+      await ticketBatch.commit();
+    }
+
+    // 2. Visas: update any visa without branch or with branch === 'Dubai' to 'Negombo'
+    const visaSnap = await getDocs(collection(db, VISAS_COLLECTION));
+    const visaBatch = writeBatch(db);
+    let visaCount = 0;
+    visaSnap.forEach((d) => {
+      const data = d.data() as VisaFollowup;
+      if (data.branch !== 'Negombo') {
+        visaBatch.update(d.ref, { branch: 'Negombo' });
+        visaCount++;
+      }
+    });
+    if (visaCount > 0) {
+      await visaBatch.commit();
+    }
+  } catch (error) {
+    console.error("Error migrating records to Sri Lanka branch:", error);
+  }
+}
+
 // Batch Clear / Seed Operations
 export async function clearAllFirestoreData() {
   try {
@@ -174,6 +243,12 @@ export async function clearAllFirestoreData() {
     const commentBatch = writeBatch(db);
     commentSnap.forEach(d => commentBatch.delete(d.ref));
     await commentBatch.commit();
+
+    // Expenses
+    const expenseSnap = await getDocs(collection(db, EXPENSES_COLLECTION));
+    const expenseBatch = writeBatch(db);
+    expenseSnap.forEach(d => expenseBatch.delete(d.ref));
+    await expenseBatch.commit();
 
     // Ensure system_init is set so reloads stay empty and never re-seed demo data
     const initRef = doc(db, SETTINGS_COLLECTION, SYSTEM_INIT_DOC);

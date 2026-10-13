@@ -2,13 +2,20 @@ import React, { useState, useMemo } from 'react';
 import { 
   TicketFollowup, 
   VisaFollowup, 
-  CompanyProfile 
+  CompanyProfile,
+  ExpenseItem,
+  ExpenseCategory,
+  EXPENSE_CATEGORIES,
+  BranchFilter,
+  BranchOffice,
+  BRANCH_CONFIG
 } from '../types';
 import { 
   Calculator, DollarSign, TrendingUp, TrendingDown, Calendar, Filter, 
   Search, Download, Printer, ArrowUpRight, CheckCircle2, Clock, 
   Building2, Plane, FileText, Users, ArrowRight, RotateCcw, AlertCircle,
-  Briefcase, Percent, ChevronDown, Check, Layers
+  Briefcase, Percent, ChevronDown, Check, Layers, Plus, Edit2, Trash2,
+  Tag, Receipt, Wallet, ShoppingBag, PieChart
 } from 'lucide-react';
 import { 
   DATE_PRESETS, 
@@ -25,20 +32,26 @@ import {
   normalizePaymentStatus,
   getPaymentStatusBadgeClass
 } from '../utils/paymentUtils';
+import { AddExpenseModal } from './AddExpenseModal';
 
 interface FinancialAccountingViewProps {
   tickets: TicketFollowup[];
   visas: VisaFollowup[];
+  expenses?: ExpenseItem[];
+  selectedBranch?: BranchFilter;
   companyProfile?: CompanyProfile;
   onOpenTicketDetails?: (ticket: TicketFollowup) => void;
   onOpenVisaDetails?: (visa: VisaFollowup) => void;
   onNavigateTab?: (tab: 'dashboard' | 'tickets' | 'visas' | 'accounting') => void;
   onUpdateTicketPaymentStatus?: (id: string, paymentStatus: any) => void;
   onUpdateVisaPaymentStatus?: (id: string, paymentStatus: any) => void;
+  onAddExpense?: (expense: ExpenseItem) => void;
+  onUpdateExpense?: (expense: ExpenseItem) => void;
+  onDeleteExpense?: (id: string) => void;
 }
 
 export type SectorFilter = 'ALL' | 'TICKETS' | 'VISAS' | 'GROUPS';
-export type AccountingTab = 'ledger' | 'pnl' | 'agencies' | 'suppliers';
+export type AccountingTab = 'ledger' | 'pnl' | 'expenses' | 'agencies' | 'suppliers';
 export type DateBasis = 'booking' | 'service'; // Booking/Submission Date vs Flight/Entry Date
 
 interface UnifiedLedgerItem {
@@ -68,15 +81,26 @@ interface UnifiedLedgerItem {
 export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = ({
   tickets,
   visas,
+  expenses = [],
+  selectedBranch = 'All',
   companyProfile,
   onOpenTicketDetails,
   onOpenVisaDetails,
   onNavigateTab,
   onUpdateTicketPaymentStatus,
-  onUpdateVisaPaymentStatus
+  onUpdateVisaPaymentStatus,
+  onAddExpense,
+  onUpdateExpense,
+  onDeleteExpense
 }) => {
   // Navigation tabs inside Accounting
   const [activeAccountingTab, setActiveAccountingTab] = useState<AccountingTab>('ledger');
+
+  // Expenses management state
+  const [selectedExpenseCategory, setSelectedExpenseCategory] = useState<string>('ALL');
+  const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<ExpenseItem | null>(null);
+  const [deletingExpenseId, setDeletingExpenseId] = useState<string | null>(null);
 
   // Date selection states
   const [selectedPreset, setSelectedPreset] = useState<string>('this_month');
@@ -450,12 +474,109 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
     return Object.values(map).sort((a, b) => b.profit - a.profit);
   }, [filteredLedgerItems]);
 
+  // Active currency label based on branch
+  const currencyCode = useMemo(() => {
+    if (selectedBranch === 'Dubai') return 'AED';
+    if (selectedBranch === 'Negombo') return 'LKR';
+    return 'LKR';
+  }, [selectedBranch]);
+
+  // Filtered Expenses by Date Range, Branch, Category, and Search
+  const filteredExpenses = useMemo(() => {
+    return (expenses || []).filter((exp) => {
+      // Branch filter
+      if (selectedBranch && selectedBranch !== 'All') {
+        if (exp.branch && exp.branch !== selectedBranch) return false;
+      }
+
+      // Category filter
+      if (selectedExpenseCategory !== 'ALL' && exp.category !== selectedExpenseCategory) {
+        return false;
+      }
+
+      // Search term filter
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        const matchTitle = exp.title?.toLowerCase().includes(q);
+        const matchVendor = exp.vendor?.toLowerCase().includes(q);
+        const matchReceipt = exp.receiptNo?.toLowerCase().includes(q);
+        const matchCat = exp.category?.toLowerCase().includes(q);
+        const matchNotes = exp.notes?.toLowerCase().includes(q);
+        if (!matchTitle && !matchVendor && !matchReceipt && !matchCat && !matchNotes) return false;
+      }
+
+      // Date range filter
+      if (startDate || endDate) {
+        if (!exp.date) return false;
+        const isMatch = isDateInRange(exp.date, startDate, endDate);
+        if (!isMatch) return false;
+      }
+
+      return true;
+    });
+  }, [expenses, selectedBranch, selectedExpenseCategory, searchTerm, startDate, endDate]);
+
+  // Total operating expenses for selected period
+  const totalExpensesAmount = useMemo(() => {
+    return filteredExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  }, [filteredExpenses]);
+
+  // Expenses categorized breakdown
+  const expensesByCategory = useMemo(() => {
+    const map: Record<string, { category: string; count: number; totalAmount: number }> = {};
+    filteredExpenses.forEach((e) => {
+      const cat = e.category || 'Miscellaneous Overhead';
+      if (!map[cat]) {
+        map[cat] = { category: cat, count: 0, totalAmount: 0 };
+      }
+      map[cat].count += 1;
+      map[cat].totalAmount += (e.amount || 0);
+    });
+    return Object.values(map).sort((a, b) => b.totalAmount - a.totalAmount);
+  }, [filteredExpenses]);
+
+  // Net Profit & Margins
+  const grossProfit = financialTotals.totalProfit; // Revenue minus Cost of Sales
+  const netProfit = grossProfit - totalExpensesAmount; // Gross Profit minus Operating Expenses
+  const netProfitMargin = financialTotals.totalSelling > 0
+    ? ((netProfit / financialTotals.totalSelling) * 100).toFixed(1)
+    : '0.0';
+  const grossProfitMargin = financialTotals.profitMargin;
+
   // CSV Export Function
   const handleExportCSV = () => {
+    if (activeAccountingTab === 'expenses') {
+      const headers = [
+        'Date', 'Expense Title', 'Category', 'Branch', 'Amount', 'Currency', 
+        'Payment Method', 'Paid To / Vendor', 'Receipt / Ref', 'Notes'
+      ];
+      const rows = filteredExpenses.map((exp) => [
+        `"${exp.date}"`,
+        `"${exp.title.replace(/"/g, '""')}"`,
+        `"${exp.category || ''}"`,
+        `"${exp.branch}"`,
+        `"${exp.amount}"`,
+        `"${exp.currency}"`,
+        `"${exp.paymentMethod || ''}"`,
+        `"${(exp.vendor || '').replace(/"/g, '""')}"`,
+        `"${(exp.receiptNo || '').replace(/"/g, '""')}"`,
+        `"${(exp.notes || '').replace(/"/g, '""')}"`
+      ]);
+      const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `operating_expenses_${startDate || 'all'}_to_${endDate || 'all'}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     const headers = [
       'Date', 'Date Type', 'Sector', 'Reference', 'Passenger / Group', 'Pax Count', 
       'Agency / Customer', 'Customer Type', 'Supplier / Airline', 'Service Details',
-      'Supplier Cost (LKR/AED)', 'Invoiced Selling Price', 'Net Profit', 'Profit Margin %', 'Payment Status'
+      `Supplier Cost (${currencyCode})`, 'Invoiced Selling Price', 'Net Profit', 'Profit Margin %', 'Payment Status'
     ];
 
     const rows = filteredLedgerItems.map((item) => [
@@ -681,30 +802,30 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
       </div>
 
       {/* ========================================================================= */}
-      {/* 3. EXECUTIVE FINANCIAL & PROFIT SUMMARY KPIS                               */}
+      {/* 3. EXECUTIVE FINANCIAL & PROFIT SUMMARY KPIS (5-METRIC SUITE)              */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
         
-        {/* Gross Revenue */}
+        {/* 1. Gross Revenue */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Gross Turnover / Revenue</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Gross Turnover</span>
             <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2">
             <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
-              LKR {financialTotals.totalSelling.toLocaleString()}
+              {currencyCode} {financialTotals.totalSelling.toLocaleString()}
             </div>
             <div className="text-[11px] text-slate-500 mt-0.5 flex items-center justify-between">
-              <span>From {financialTotals.itemCount} Transactions</span>
+              <span>{financialTotals.itemCount} Transactions</span>
               <span className="font-semibold text-blue-600">Total Invoiced</span>
             </div>
           </div>
         </div>
 
-        {/* Cost of Sales (COGS) */}
+        {/* 2. Direct Cost of Sales (COGS) */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Cost of Sales (COGS)</span>
@@ -714,75 +835,106 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
           </div>
           <div className="mt-2">
             <div className="text-xl font-black text-slate-700 font-mono tracking-tight">
-              LKR {financialTotals.totalCost.toLocaleString()}
+              {currencyCode} {financialTotals.totalCost.toLocaleString()}
             </div>
             <div className="text-[11px] text-slate-500 mt-0.5 flex items-center justify-between">
-              <span>Airlines GDS & Visa Suppliers</span>
-              <span className="font-semibold text-slate-600">Net Costs</span>
+              <span>Airlines & Issuers</span>
+              <span className="font-semibold text-slate-600">Direct Outflows</span>
             </div>
           </div>
         </div>
 
-        {/* Net Business Profit & Margin % */}
-        <div className={`p-4 rounded-xl border shadow-2xs flex flex-col justify-between ${
-          financialTotals.totalProfit >= 0 
-            ? 'bg-emerald-50/80 border-emerald-300 ring-1 ring-emerald-500/20' 
-            : 'bg-red-50/80 border-red-300 ring-1 ring-red-500/20'
+        {/* 3. Gross Profit & Gross Margin */}
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Gross Profit</span>
+            <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold px-1.5 py-0.2 rounded font-mono">
+              {grossProfitMargin}% Margin
+            </span>
+          </div>
+          <div className="mt-2">
+            <div className="text-xl font-black text-blue-900 font-mono tracking-tight">
+              {grossProfit >= 0 ? `+${currencyCode} ${grossProfit.toLocaleString()}` : `${currencyCode} ${grossProfit.toLocaleString()}`}
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5 flex items-center justify-between">
+              <span>Revenue minus COGS</span>
+              <span className="font-bold text-blue-600">Trading Margin</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 4. Operating Expenses */}
+        <div className="bg-white p-4 rounded-xl border border-rose-200 shadow-2xs flex flex-col justify-between relative overflow-hidden group">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-1.5">
+              <span className="text-[10px] text-rose-800 font-bold uppercase tracking-wider">Operating Expenses</span>
+              <span className="bg-rose-100 text-rose-800 text-[9px] font-black px-1.5 py-0.2 rounded font-mono">
+                {filteredExpenses.length} Items
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setEditingExpense(null);
+                setIsAddExpenseOpen(true);
+              }}
+              className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-md transition-colors cursor-pointer"
+              title="Record new expense"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="mt-2">
+            <div className="text-xl font-black text-rose-700 font-mono tracking-tight">
+              {currencyCode} {totalExpensesAmount.toLocaleString()}
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5 flex items-center justify-between">
+              <span>Rent, Salaries & Overheads</span>
+              <button
+                onClick={() => setActiveAccountingTab('expenses')}
+                className="text-[10px] font-bold text-rose-600 hover:text-rose-800 cursor-pointer underline"
+              >
+                Manage
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 5. Net Business Profit (Bottom Line) */}
+        <div className={`p-4 rounded-xl border shadow-md flex flex-col justify-between transition-all ${
+          netProfit >= 0 
+            ? 'bg-gradient-to-br from-emerald-50 via-emerald-100/50 to-teal-50 border-emerald-300 ring-2 ring-emerald-500/20' 
+            : 'bg-gradient-to-br from-red-50 via-rose-100/50 to-red-50 border-red-300 ring-2 ring-red-500/20'
         }`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-1.5">
-              <span className="text-[10px] text-emerald-900 font-extrabold uppercase tracking-wider">Net Gross Profit</span>
-              <span className="bg-emerald-600 text-white text-[9px] font-black px-2 py-0.5 rounded font-mono">
-                {financialTotals.profitMargin}% Margin
+              <span className={`text-[10px] font-black uppercase tracking-wider ${
+                netProfit >= 0 ? 'text-emerald-950' : 'text-red-950'
+              }`}>
+                {netProfit >= 0 ? '⭐ NET PROFIT' : '⚠️ NET LOSS'}
+              </span>
+              <span className={`text-[9px] font-black px-1.5 py-0.2 rounded font-mono ${
+                netProfit >= 0 ? 'bg-emerald-700 text-white' : 'bg-red-700 text-white'
+              }`}>
+                {netProfitMargin}% Net
               </span>
             </div>
-            <div className={`p-2 rounded-lg ${
-              financialTotals.totalProfit >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+            <div className={`p-1.5 rounded-lg ${
+              netProfit >= 0 ? 'bg-emerald-200 text-emerald-900' : 'bg-red-200 text-red-900'
             }`}>
-              {financialTotals.totalProfit >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+              {netProfit >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
             </div>
           </div>
           <div className="mt-2">
             <div className={`text-xl font-black font-mono tracking-tight ${
-              financialTotals.totalProfit >= 0 ? 'text-emerald-800' : 'text-red-700'
+              netProfit >= 0 ? 'text-emerald-900' : 'text-red-800'
             }`}>
-              {financialTotals.totalProfit >= 0 
-                ? `+LKR ${financialTotals.totalProfit.toLocaleString()}` 
-                : `LKR ${financialTotals.totalProfit.toLocaleString()}`}
+              {netProfit >= 0 
+                ? `+${currencyCode} ${netProfit.toLocaleString()}` 
+                : `${currencyCode} ${netProfit.toLocaleString()}`}
             </div>
-            <div className="text-[11px] text-emerald-800/80 mt-0.5 flex items-center justify-between">
-              <span>Revenue minus Supplier Cost</span>
-              <span className="font-bold">Net Yield</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Collections & Outstanding Receivables */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Collections & Receivables</span>
-            <div className="p-2 bg-amber-50 text-amber-600 rounded-lg">
-              <Clock className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-[9px] text-slate-400 uppercase font-bold block">Received / Paid:</span>
-                <span className="text-sm font-black text-emerald-700 font-mono">
-                  LKR {financialTotals.collectedAmount.toLocaleString()}
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-[9px] text-slate-400 uppercase font-bold block">Outstanding:</span>
-                <span className="text-sm font-black text-amber-700 font-mono">
-                  LKR {financialTotals.outstandingAmount.toLocaleString()}
-                </span>
-              </div>
-            </div>
-            <div className="text-[10px] text-slate-500 mt-1.5 flex items-center justify-between border-t border-slate-100 pt-1">
-              <span>Collection Progress</span>
-              <span className="font-bold text-slate-700 font-mono">{financialTotals.collectionRate}%</span>
+            <div className="text-[11px] text-slate-600 mt-0.5 flex items-center justify-between">
+              <span>Gross Profit minus Expenses</span>
+              <span className="font-bold text-slate-800">Final Bottom Line</span>
             </div>
           </div>
         </div>
@@ -796,7 +948,7 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
         
         {/* Module Sub-Tabs */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
-          <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl">
+          <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl">
             <button
               onClick={() => setActiveAccountingTab('ledger')}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
@@ -817,6 +969,18 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
               }`}
             >
               Profit & Loss Statement (P&L)
+            </button>
+
+            <button
+              onClick={() => setActiveAccountingTab('expenses')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeAccountingTab === 'expenses'
+                  ? 'bg-white text-rose-700 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Receipt className="w-3.5 h-3.5 text-rose-600" />
+              <span>Operating Expenses ({filteredExpenses.length})</span>
             </button>
 
             <button
@@ -841,6 +1005,7 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
               Supplier & Airline Nets
             </button>
           </div>
+
 
           {/* Quick Sector Toggle */}
           <div className="flex items-center space-x-1">
@@ -1137,31 +1302,37 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
           
           <div className="border-b border-slate-200 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">
-                Statement of Profit & Loss (Income Statement)
-              </h2>
+              <div className="flex items-center space-x-2">
+                <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">
+                  Statement of Profit & Loss (Income Statement)
+                </h2>
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-300 font-mono">
+                  Full Net Profit Audit
+                </span>
+              </div>
               <p className="text-xs text-slate-500 font-mono mt-0.5">
-                Period: {dateRangeLabel} • Prepared for {companyProfile?.companyName || 'Travel Agency Management'}
+                Period: {dateRangeLabel} • Prepared for {companyProfile?.companyName || 'Seagull Global'} ({selectedBranch === 'Dubai' ? 'Dubai Branch' : selectedBranch === 'Negombo' ? 'Negombo Branch' : 'All Branches'})
               </p>
             </div>
             <div className="text-right">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Net Profit Margin</span>
-              <span className="text-xl font-black text-emerald-600 font-mono">
-                {financialTotals.profitMargin}%
+              <span className="text-[10px] text-slate-400 uppercase font-bold block">Final Net Profit Margin</span>
+              <span className={`text-xl font-black font-mono ${netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {netProfitMargin}%
               </span>
             </div>
           </div>
 
           <div className="space-y-6 max-w-4xl mx-auto">
             
-            {/* 1. Operating Revenue */}
+            {/* 1. Operating Gross Revenue */}
             <div className="space-y-2">
               <div className="flex items-center justify-between bg-blue-50/80 px-4 py-2.5 rounded-xl border border-blue-200">
-                <span className="text-xs font-black text-blue-950 uppercase tracking-wider">
-                  1. Operating Gross Revenue
+                <span className="text-xs font-black text-blue-950 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px]">1</span>
+                  <span>Operating Gross Revenue</span>
                 </span>
                 <span className="text-sm font-black font-mono text-blue-900">
-                  LKR {financialTotals.totalSelling.toLocaleString()}
+                  {currencyCode} {financialTotals.totalSelling.toLocaleString()}
                 </span>
               </div>
 
@@ -1172,7 +1343,7 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
                     <span>Air Ticket Reissue & Issuance Revenue ({financialTotals.ticketPax} Pax)</span>
                   </span>
                   <span className="font-mono font-bold text-slate-800">
-                    LKR {financialTotals.ticketSelling.toLocaleString()}
+                    {currencyCode} {financialTotals.ticketSelling.toLocaleString()}
                   </span>
                 </div>
 
@@ -1180,7 +1351,7 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
                   <div className="flex items-center justify-between py-1 border-b border-slate-100 pl-4 text-slate-500">
                     <span>↳ Of which: Group Bookings ({financialTotals.groupPax} Pax)</span>
                     <span className="font-mono font-semibold text-slate-700">
-                      LKR {financialTotals.groupSelling.toLocaleString()}
+                      {currencyCode} {financialTotals.groupSelling.toLocaleString()}
                     </span>
                   </div>
                 )}
@@ -1188,10 +1359,10 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
                 <div className="flex items-center justify-between py-1 border-b border-slate-100">
                   <span className="text-slate-600 flex items-center gap-1.5">
                     <FileText className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>Visa Processing Services Revenue ({financialTotals.visaCount} Visas)</span>
+                    <span>Visa & Service Applications Revenue ({financialTotals.visaCount} Files)</span>
                   </span>
                   <span className="font-mono font-bold text-slate-800">
-                    LKR {financialTotals.visaSelling.toLocaleString()}
+                    {currencyCode} {financialTotals.visaSelling.toLocaleString()}
                   </span>
                 </div>
               </div>
@@ -1200,11 +1371,12 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
             {/* 2. Direct Operating Cost of Sales (COGS) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between bg-slate-100 px-4 py-2.5 rounded-xl border border-slate-200">
-                <span className="text-xs font-black text-slate-800 uppercase tracking-wider">
-                  2. Cost of Sales (Supplier & GDS Outflows)
+                <span className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-slate-600 text-white flex items-center justify-center text-[10px]">2</span>
+                  <span>Cost of Sales (Direct Supplier & GDS Outflows)</span>
                 </span>
                 <span className="text-sm font-black font-mono text-slate-800">
-                  (LKR {financialTotals.totalCost.toLocaleString()})
+                  ({currencyCode} {financialTotals.totalCost.toLocaleString()})
                 </span>
               </div>
 
@@ -1212,72 +1384,189 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
                 <div className="flex items-center justify-between py-1 border-b border-slate-100">
                   <span className="text-slate-600">Airline GDS & Fare Net Costs</span>
                   <span className="font-mono font-bold text-slate-700">
-                    LKR {financialTotals.ticketCost.toLocaleString()}
+                    {currencyCode} {financialTotals.ticketCost.toLocaleString()}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between py-1 border-b border-slate-100">
-                  <span className="text-slate-600">Visa Supplier & Partner Issuing Fees</span>
+                  <span className="text-slate-600">Visa Supplier & Partner Issuing Net Fees</span>
                   <span className="font-mono font-bold text-slate-700">
-                    LKR {financialTotals.visaCost.toLocaleString()}
+                    {currencyCode} {financialTotals.visaCost.toLocaleString()}
                   </span>
                 </div>
               </div>
             </div>
 
             {/* 3. Gross Operating Profit */}
-            <div className="bg-emerald-50 border-2 border-emerald-300 p-4 rounded-xl flex items-center justify-between">
+            <div className="bg-blue-50/70 border-2 border-blue-200 p-4 rounded-xl flex items-center justify-between">
               <div>
-                <span className="text-xs font-black text-emerald-950 uppercase tracking-wider block">
-                  3. Net Operating Profit for Selected Period
+                <span className="text-xs font-black text-blue-950 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-blue-700 text-white flex items-center justify-center text-[10px]">3</span>
+                  <span>Gross Operating Profit (Trading Margin)</span>
                 </span>
-                <span className="text-[11px] text-emerald-700">
-                  Gross Revenue minus Direct Operating Supplier Costs
+                <span className="text-[11px] text-blue-700 block mt-0.5 ml-7">
+                  Operating Gross Revenue minus Direct Supplier Costs
                 </span>
               </div>
               <div className="text-right">
-                <span className="text-xl font-black font-mono text-emerald-800 block">
-                  {financialTotals.totalProfit >= 0 
-                    ? `+LKR ${financialTotals.totalProfit.toLocaleString()}` 
-                    : `LKR ${financialTotals.totalProfit.toLocaleString()}`}
+                <span className="text-lg font-black font-mono text-blue-900 block">
+                  {grossProfit >= 0 
+                    ? `+${currencyCode} ${grossProfit.toLocaleString()}` 
+                    : `${currencyCode} ${grossProfit.toLocaleString()}`}
                 </span>
-                <span className="text-xs font-extrabold text-emerald-600 font-mono">
-                  {financialTotals.profitMargin}% Net Margin
+                <span className="text-xs font-extrabold text-blue-600 font-mono">
+                  {grossProfitMargin}% Gross Margin
                 </span>
               </div>
             </div>
 
-            {/* Sector Contribution Comparison */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                    <Plane className="w-4 h-4 text-blue-600" />
-                    <span>Air Ticketing Contribution</span>
+            {/* 4. Operating Expenses (Overheads & Admin Costs) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between bg-rose-50 px-4 py-2.5 rounded-xl border border-rose-200">
+                <span className="text-xs font-black text-rose-950 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-rose-600 text-white flex items-center justify-center text-[10px]">4</span>
+                  <span>Operating Expenses & Overhead Deductions</span>
+                </span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => {
+                      setEditingExpense(null);
+                      setIsAddExpenseOpen(true);
+                    }}
+                    className="text-[10px] font-bold bg-white text-rose-700 hover:bg-rose-100 px-2 py-0.5 rounded border border-rose-300 transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Add Expense</span>
+                  </button>
+                  <span className="text-sm font-black font-mono text-rose-700">
+                    ({currencyCode} {totalExpensesAmount.toLocaleString()})
                   </span>
-                  <span className="text-xs font-mono font-extrabold text-blue-700">
-                    +LKR {financialTotals.ticketProfit.toLocaleString()}
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500 flex justify-between">
-                  <span>Revenue: LKR {financialTotals.ticketSelling.toLocaleString()}</span>
-                  <span>Cost: LKR {financialTotals.ticketCost.toLocaleString()}</span>
                 </div>
               </div>
 
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="pl-4 pr-2 space-y-1.5 text-xs">
+                {expensesByCategory.length > 0 ? (
+                  expensesByCategory.map((expGroup) => {
+                    const percentOfExp = totalExpensesAmount > 0 
+                      ? ((expGroup.totalAmount / totalExpensesAmount) * 100).toFixed(1) 
+                      : '0.0';
+                    return (
+                      <div key={expGroup.category} className="flex items-center justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-700 flex items-center gap-1.5">
+                          <Tag className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{expGroup.category}</span>
+                          <span className="text-[10px] text-slate-400 font-mono">({expGroup.count} vouchers • {percentOfExp}%)</span>
+                        </span>
+                        <span className="font-mono font-bold text-rose-700">
+                          {currencyCode} {expGroup.totalAmount.toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="py-2.5 px-3 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-500 text-[11px] flex items-center justify-between">
+                    <span>No operating expenses recorded for this period yet.</span>
+                    <button
+                      onClick={() => {
+                        setEditingExpense(null);
+                        setIsAddExpenseOpen(true);
+                      }}
+                      className="text-rose-600 hover:text-rose-700 font-bold underline cursor-pointer"
+                    >
+                      + Record first expense
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 5. ⭐ FINAL NET BUSINESS PROFIT / LOSS (BOTTOM LINE) */}
+            <div className={`p-5 rounded-2xl border-2 shadow-lg transition-all ${
+              netProfit >= 0
+                ? 'bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-100 border-emerald-400 ring-2 ring-emerald-500/20'
+                : 'bg-gradient-to-r from-rose-50 via-red-50 to-rose-100 border-red-400 ring-2 ring-red-500/20'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="w-6 h-6 rounded-full bg-emerald-700 text-white flex items-center justify-center text-xs font-black">
+                      5
+                    </span>
+                    <span className="text-sm font-black uppercase tracking-wider text-slate-900">
+                      {netProfit >= 0 ? '⭐ NET OPERATING PROFIT (FINAL BOTTOM LINE)' : '⚠️ NET OPERATING LOSS'}
+                    </span>
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded font-mono ${
+                      netProfit >= 0 ? 'bg-emerald-700 text-white' : 'bg-red-700 text-white'
+                    }`}>
+                      {netProfitMargin}% Net Margin
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-600 block mt-1 ml-8">
+                    Gross Operating Profit ({currencyCode} {grossProfit.toLocaleString()}) minus Total Operating Expenses ({currencyCode} {totalExpensesAmount.toLocaleString()})
+                  </span>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className={`text-2xl font-black font-mono block ${
+                    netProfit >= 0 ? 'text-emerald-900' : 'text-red-700'
+                  }`}>
+                    {netProfit >= 0 
+                      ? `+${currencyCode} ${netProfit.toLocaleString()}` 
+                      : `${currencyCode} ${netProfit.toLocaleString()}`}
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-semibold font-mono">
+                    Net Take-Home Yield
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Sector Contribution & Profit Breakdown */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Plane className="w-4 h-4 text-blue-600" />
+                    <span>Air Tickets Profit</span>
+                  </span>
+                  <span className="text-xs font-mono font-extrabold text-blue-700">
+                    +{currencyCode} {financialTotals.ticketProfit.toLocaleString()}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-500 flex justify-between">
+                  <span>Rev: {currencyCode} {financialTotals.ticketSelling.toLocaleString()}</span>
+                  <span>Cost: {currencyCode} {financialTotals.ticketCost.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                     <FileText className="w-4 h-4 text-emerald-600" />
-                    <span>Visa Services Contribution</span>
+                    <span>Visa Services Profit</span>
                   </span>
                   <span className="text-xs font-mono font-extrabold text-emerald-700">
-                    +LKR {financialTotals.visaProfit.toLocaleString()}
+                    +{currencyCode} {financialTotals.visaProfit.toLocaleString()}
                   </span>
                 </div>
-                <div className="text-[11px] text-slate-500 flex justify-between">
-                  <span>Revenue: LKR {financialTotals.visaSelling.toLocaleString()}</span>
-                  <span>Cost: LKR {financialTotals.visaCost.toLocaleString()}</span>
+                <div className="text-[10px] text-slate-500 flex justify-between">
+                  <span>Rev: {currencyCode} {financialTotals.visaSelling.toLocaleString()}</span>
+                  <span>Cost: {currencyCode} {financialTotals.visaCost.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-rose-50/70 rounded-xl border border-rose-200 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-rose-900 flex items-center gap-1.5">
+                    <Receipt className="w-4 h-4 text-rose-600" />
+                    <span>Operating Overheads</span>
+                  </span>
+                  <span className="text-xs font-mono font-extrabold text-rose-700">
+                    -{currencyCode} {totalExpensesAmount.toLocaleString()}
+                  </span>
+                </div>
+                <div className="text-[10px] text-rose-600/80 flex justify-between">
+                  <span>{filteredExpenses.length} Vouchers</span>
+                  <span>{expensesByCategory.length} Categories</span>
                 </div>
               </div>
             </div>
@@ -1285,6 +1574,238 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* 5. TAB CONTENT: 2.5 OPERATING EXPENSES & OVERHEADS MANAGEMENT             */}
+      {/* ========================================================================= */}
+      {activeAccountingTab === 'expenses' && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-4 p-5">
+          
+          {/* Header & Quick Action */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
+            <div>
+              <div className="flex items-center space-x-2">
+                <Receipt className="w-5 h-5 text-rose-600" />
+                <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">
+                  Operating Expenses & Overheads Ledger
+                </h2>
+                <span className="bg-rose-100 text-rose-800 border border-rose-300 text-[10px] font-bold px-2 py-0.5 rounded-full font-mono">
+                  {filteredExpenses.length} Records
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Record and manage rent, utilities, salaries, marketing, and office costs for {dateRangeLabel}
+              </p>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => {
+                  setEditingExpense(null);
+                  setIsAddExpenseOpen(true);
+                }}
+                className="flex items-center space-x-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Record New Expense</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Expense KPI Bar */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <span className="text-[10px] text-slate-500 font-bold uppercase block">Total Operating Outflow</span>
+              <span className="text-lg font-black text-rose-700 font-mono">
+                {currencyCode} {totalExpensesAmount.toLocaleString()}
+              </span>
+            </div>
+
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <span className="text-[10px] text-slate-500 font-bold uppercase block">Largest Expense Category</span>
+              <span className="text-xs font-black text-slate-800 truncate block mt-1">
+                {expensesByCategory[0] ? `${expensesByCategory[0].category} (${currencyCode} ${expensesByCategory[0].totalAmount.toLocaleString()})` : 'None recorded'}
+              </span>
+            </div>
+
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <span className="text-[10px] text-slate-500 font-bold uppercase block">Expense Vouchers Count</span>
+              <span className="text-lg font-black text-slate-800 font-mono">
+                {filteredExpenses.length} Records
+              </span>
+            </div>
+          </div>
+
+          {/* Filter Bar for Expenses: Category & Search */}
+          <div className="flex flex-col sm:flex-row items-center gap-3 pt-1">
+            <div className="relative flex-1 w-full">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search expense description, vendor, voucher #..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-slate-50 text-slate-900 placeholder-slate-400 text-xs rounded-lg pl-8 pr-3 py-2 border border-slate-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500"
+              />
+            </div>
+
+            <div className="w-full sm:w-64">
+              <select
+                value={selectedExpenseCategory}
+                onChange={(e) => setSelectedExpenseCategory(e.target.value)}
+                className="w-full bg-slate-50 text-slate-900 text-xs rounded-lg px-3 py-2 border border-slate-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer font-medium"
+              >
+                <option value="ALL">All Expense Categories ({filteredExpenses.length})</option>
+                {EXPENSE_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Expenses Table */}
+          <div className="overflow-x-auto border border-slate-200 rounded-xl">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-100/90 text-slate-600 font-bold uppercase tracking-wider text-[11px] border-b border-slate-200">
+                  <th className="py-3 px-3 w-[12%]">Date</th>
+                  <th className="py-3 px-3 w-[24%]">Expense Title / Description</th>
+                  <th className="py-3 px-3 w-[18%]">Category</th>
+                  <th className="py-3 px-3 w-[10%]">Branch</th>
+                  <th className="py-3 px-3 w-[14%]">Vendor / Paid To</th>
+                  <th className="py-3 px-3 text-right w-[12%]">Amount</th>
+                  <th className="py-3 px-3 text-center w-[10%]">Actions</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-100">
+                {filteredExpenses.length > 0 ? (
+                  filteredExpenses.map((exp) => (
+                    <tr key={exp.id} className="hover:bg-rose-50/30 transition-colors">
+                      {/* Date */}
+                      <td className="py-3 px-3 font-mono font-bold text-slate-800 align-top">
+                        {formatReadableDate(exp.date)}
+                      </td>
+
+                      {/* Title & Notes */}
+                      <td className="py-3 px-3 align-top">
+                        <div className="font-bold text-slate-900">{exp.title}</div>
+                        {exp.notes && (
+                          <div className="text-[10px] text-slate-500 italic mt-0.5">{exp.notes}</div>
+                        )}
+                        {exp.receiptNo && (
+                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                            Ref: {exp.receiptNo} • {exp.paymentMethod}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Category */}
+                      <td className="py-3 px-3 align-top">
+                        <span className="inline-block bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded border border-slate-200">
+                          {exp.category}
+                        </span>
+                      </td>
+
+                      {/* Branch */}
+                      <td className="py-3 px-3 align-top">
+                        <span className={`inline-flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded border ${
+                          exp.branch === 'Dubai'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : 'bg-blue-50 text-blue-800 border-blue-200'
+                        }`}>
+                          <span>{exp.branch === 'Dubai' ? '🇦🇪 Dubai' : '🇱🇰 Negombo'}</span>
+                        </span>
+                      </td>
+
+                      {/* Vendor */}
+                      <td className="py-3 px-3 align-top text-slate-700">
+                        {exp.vendor || '—'}
+                      </td>
+
+                      {/* Amount */}
+                      <td className="py-3 px-3 text-right font-mono font-black text-rose-700 text-sm align-top">
+                        {exp.currency} {exp.amount.toLocaleString()}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-3 px-3 text-center align-top">
+                        <div className="flex items-center justify-center space-x-1">
+                          <button
+                            onClick={() => {
+                              setEditingExpense(exp);
+                              setIsAddExpenseOpen(true);
+                            }}
+                            className="p-1 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                            title="Edit expense"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`Are you sure you want to delete expense "${exp.title}"?`)) {
+                                onDeleteExpense?.(exp.id);
+                              }
+                            }}
+                            className="p-1 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                            title="Delete expense"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-500">
+                      <div className="max-w-sm mx-auto space-y-3">
+                        <div className="w-12 h-12 mx-auto rounded-full bg-rose-50 text-rose-600 flex items-center justify-center border border-rose-200">
+                          <Receipt className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-800 text-sm">No expenses recorded for this period</p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Record operating overheads like office rent, staff wages, internet bills, and typing fees to accurately compute business net profit.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setEditingExpense(null);
+                            setIsAddExpenseOpen(true);
+                          }}
+                          className="inline-flex items-center space-x-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>+ Record Your First Expense</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+
+              {filteredExpenses.length > 0 && (
+                <tfoot>
+                  <tr className="bg-slate-900 text-white font-bold">
+                    <td colSpan={5} className="py-3 px-3 uppercase text-xs tracking-wider">
+                      Total Operating Expenses ({filteredExpenses.length} Records)
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono text-rose-400 font-black text-sm">
+                      {currencyCode} {totalExpensesAmount.toLocaleString()}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+
+        </div>
+      )}
+
 
       {/* ========================================================================= */}
       {/* 5. TAB CONTENT: 3. AGENCY & CLIENT PROFITABILITY LEADERBOARD              */}
@@ -1437,6 +1958,24 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
           </div>
         </div>
       )}
+
+      {/* Add / Edit Expense Modal */}
+      <AddExpenseModal
+        isOpen={isAddExpenseOpen}
+        onClose={() => {
+          setIsAddExpenseOpen(false);
+          setEditingExpense(null);
+        }}
+        onSaveExpense={(savedExp) => {
+          if (editingExpense) {
+            onUpdateExpense?.(savedExp);
+          } else {
+            onAddExpense?.(savedExp);
+          }
+        }}
+        editingExpense={editingExpense}
+        defaultBranch={selectedBranch === 'Dubai' ? 'Dubai' : 'Negombo'}
+      />
 
     </div>
   );

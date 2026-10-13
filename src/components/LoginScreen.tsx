@@ -51,8 +51,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         
         {/* Top Header Banner */}
         <div className="bg-gradient-to-r from-blue-900 via-blue-800 to-slate-900 p-8 text-center text-white relative">
-          <div className="bg-white/95 inline-block p-3 rounded-2xl shadow-xl backdrop-blur-sm mb-3">
-            <SeagullLogo size="lg" variant="full" />
+          <div className="bg-white/95 inline-block p-4 rounded-2xl shadow-xl backdrop-blur-sm mb-3">
+            <SeagullLogo size="xl" variant="stacked" allowUpload={true} />
           </div>
           <h2 className="text-xl font-black tracking-tight text-white mt-1">
             Staff Portal Sign In

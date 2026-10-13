@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { TicketFollowup, TicketStatus, CustomerType, TicketPaymentStatus, Traveler } from '../types';
+import { TicketFollowup, TicketStatus, CustomerType, TicketPaymentStatus, Traveler, BranchOffice, BRANCH_CONFIG } from '../types';
 import { 
   X, Plus, Plane, DollarSign, Building2, User, Calendar, MapPin, Luggage, 
   AlertTriangle, ExternalLink, Edit3, Save, Upload, FileText, Sparkles, 
@@ -7,7 +7,7 @@ import {
   Users, TrendingUp, TrendingDown, Calculator, Check, ArrowRight, Copy, ClipboardList,
   Link, Globe
 } from 'lucide-react';
-import { normalizeGitHubUrl } from '../utils/imageUrlHelpers';
+import { normalizeGitHubUrl, normalizeToFullDate } from '../utils/imageUrlHelpers';
 import { isPaidPaymentStatus, isPartialPaymentStatus, isUnpaidPaymentStatus } from '../utils/paymentUtils';
 
 interface AddTicketModalProps {
@@ -19,6 +19,7 @@ interface AddTicketModalProps {
   recordedAgencies?: string[];
   existingTickets?: TicketFollowup[];
   onOpenExistingTicket?: (ticket: TicketFollowup) => void;
+  defaultBranch?: BranchOffice;
 }
 
 export const AddTicketModal: React.FC<AddTicketModalProps> = ({
@@ -29,8 +30,10 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
   onUpdateTicket,
   recordedAgencies,
   existingTickets = [],
-  onOpenExistingTicket
+  onOpenExistingTicket,
+  defaultBranch = 'Negombo',
 }) => {
+  const [branch, setBranch] = useState<BranchOffice>(editingTicket?.branch || defaultBranch || 'Negombo');
   const [ticketNumbersText, setTicketNumbersText] = useState('');
   const [pnr, setPnr] = useState('');
   const [customer, setCustomer] = useState('Seagull Global');
@@ -91,6 +94,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
 
   useEffect(() => {
     if (editingTicket) {
+      setBranch(editingTicket.branch || defaultBranch || 'Dubai');
       setTicketNumbersText(Array.isArray(editingTicket.tickets) ? editingTicket.tickets.join('\n') : '');
       setPnr(editingTicket.pnr || editingTicket.newBooking || '');
       setCustomer(editingTicket.customer || 'Seagull Global');
@@ -155,14 +159,16 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
         setGroupSize(editingTicket.groupSize || trvs.length);
       }
     } else {
+      const initialBranch = defaultBranch || 'Dubai';
+      setBranch(initialBranch);
       setTicketNumbersText('');
       setPnr('');
       setCustomer('Seagull Global');
       setCustomerType('Agency');
-      setSupplier('AeroConnect Ltd');
-      setAirline('SriLankan Airlines');
-      setFlightNo('UL 225');
-      setReturnFlightNo('UL 226');
+      setSupplier(initialBranch === 'Dubai' ? 'Musafir B2B' : 'AeroConnect Ltd');
+      setAirline(initialBranch === 'Dubai' ? 'Emirates' : 'SriLankan Airlines');
+      setFlightNo(initialBranch === 'Dubai' ? 'EK 653' : 'UL 225');
+      setReturnFlightNo(initialBranch === 'Dubai' ? 'EK 654' : 'UL 226');
       setDepartureTime('10:30 AM');
       setArrivalTime('02:45 PM');
       setReturnDepartureTime('06:20 PM');
@@ -176,12 +182,12 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
       setBaggageAllowance('30 Kg');
       setReissueCategory('Standard Reissue');
       setStatus('Issued / Confirmed');
-      setTotalRefundable('125000');
-      setCostPrice('105000');
-      setSellingPrice('125000');
-      setCostPerPax('105000');
-      setSellingPerPax('125000');
-      setCurrency('LKR');
+      setTotalRefundable(initialBranch === 'Dubai' ? '1450' : '125000');
+      setCostPrice(initialBranch === 'Dubai' ? '1200' : '105000');
+      setSellingPrice(initialBranch === 'Dubai' ? '1450' : '125000');
+      setCostPerPax(initialBranch === 'Dubai' ? '1200' : '105000');
+      setSellingPerPax(initialBranch === 'Dubai' ? '1450' : '125000');
+      setCurrency(initialBranch === 'Dubai' ? 'AED' : 'LKR');
       setPaymentStatus('Pending');
       setRefundReason('New Flight Ticket Issued');
       setComment('E-ticket confirmed and sent to passenger');
@@ -252,8 +258,8 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
     if (extractedReturnArrTime) setReturnArrivalTime(extractedReturnArrTime);
     if (extractedDep) setDepartureLocation(extractedDep);
     if (extractedArr) setArrivalLocation(extractedArr);
-    if (extractedFlyDate) setFlyDate(extractedFlyDate);
-    if (extractedReturnDate && extractedReturnDate !== 'N/A') setReturnDate(extractedReturnDate);
+    if (extractedFlyDate) setFlyDate(normalizeToFullDate(extractedFlyDate));
+    if (extractedReturnDate && extractedReturnDate !== 'N/A') setReturnDate(normalizeToFullDate(extractedReturnDate));
     if (extractedTripType) setTripType(extractedTripType as any);
     if (extractedCabin) setCabinClass(extractedCabin as any);
     if (extractedBaggage) setBaggageAllowance(extractedBaggage);
@@ -709,7 +715,8 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
         sellingPerPax: finalSellingPax,
         profitPerPax: finalProfitPax,
         paymentStatus: isPaidPaymentStatus(paymentStatus) ? 'Paid' : isPartialPaymentStatus(paymentStatus) ? 'Partially Paid' : paymentStatus === 'Unpaid' ? 'Unpaid' : 'Pending',
-        currency: currency
+        currency: currency,
+        branch: branch,
       };
       onUpdateTicket(updatedTicket);
     } else {
@@ -731,6 +738,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
         refundAmount: finalSelling,
         serviceFee: 0,
         currency: currency,
+        branch: branch,
         timeline: [
           { id: 'tm-1', title: 'ISSUED', date: todayStr, completed: true },
           { id: 'tm-2', title: 'FLOWN / COMPLETED', date: flyDate, completed: status === 'Flown' || status === 'Completed' }
@@ -798,6 +806,74 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded cursor-pointer">
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Branch Office Selector Bar */}
+        <div className="bg-gradient-to-r from-emerald-50/60 via-slate-50 to-blue-50/60 border-b border-slate-200 px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <span className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+              <Building2 className="w-4 h-4 text-blue-600" />
+              <span>Issuing Branch Office</span>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${
+                branch === 'Dubai' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-blue-100 text-blue-800 border border-blue-300'
+              }`}>
+                {branch === 'Dubai' ? '🇦🇪 UAE Branch' : '🇱🇰 Sri Lanka Branch'}
+              </span>
+            </span>
+            <span className="text-[11px] text-slate-500 block mt-0.5">
+              Specify which branch office issued or is managing this air ticket
+            </span>
+          </div>
+
+          <div className="inline-flex bg-white p-1 rounded-xl border-2 border-slate-300 shadow-sm shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setBranch('Dubai');
+                if (!editingTicket) {
+                  setCurrency('AED');
+                  setSupplier('Musafir B2B');
+                }
+              }}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+                branch === 'Dubai'
+                  ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400'
+                  : 'text-slate-700 hover:bg-emerald-50 hover:text-emerald-800'
+              }`}
+            >
+              <span className="text-base">🇦🇪</span>
+              <div className="text-left leading-tight">
+                <div className="font-extrabold">Dubai Branch</div>
+                <div className={`text-[9px] ${branch === 'Dubai' ? 'text-emerald-100' : 'text-slate-400'}`}>
+                  Coastal Bldg, Al Tawar (AED)
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBranch('Negombo');
+                if (!editingTicket) {
+                  setCurrency('LKR');
+                  setSupplier('AeroConnect Ltd');
+                }
+              }}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+                branch === 'Negombo'
+                  ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-400'
+                  : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800'
+              }`}
+            >
+              <span className="text-base">🇱🇰</span>
+              <div className="text-left leading-tight">
+                <div className="font-extrabold">Negombo Branch</div>
+                <div className={`text-[9px] ${branch === 'Negombo' ? 'text-blue-100' : 'text-slate-400'}`}>
+                  Negombo Office (LKR)
+                </div>
+              </div>
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4 max-h-[82vh] overflow-y-auto text-xs">

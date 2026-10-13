@@ -1,6 +1,8 @@
-import React, { useState, useMemo } from 'react';
-import { X, ClipboardList, Check, AlertCircle, Sparkles, FileText, ArrowRight } from 'lucide-react';
-import { parsePassportMRZ } from '../utils/imageUrlHelpers';
+import React, { useState, useMemo, useEffect } from 'react';
+import { X, ClipboardList, Check, AlertCircle, Sparkles, FileText, ArrowRight, Building2 } from 'lucide-react';
+import { parsePassportMRZ, normalizeToFullDate } from '../utils/imageUrlHelpers';
+import { NationalitySelect } from './NationalitySelect';
+import { BranchOffice, BRANCH_CONFIG } from '../types';
 
 export interface GroupApplicantItem {
   id: string;
@@ -8,18 +10,20 @@ export interface GroupApplicantItem {
   firstName: string;
   passportNo: string;
   passportExpiry: string;
-  nationality: string;
+  nationality?: string;
   dob?: string;
   unifiedNumber?: string;
   icpFileNo?: string;
   passportAttachment?: string;
   passportFileName?: string;
+  branch?: BranchOffice;
 }
 
 interface BulkPasteVisaModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultNationality?: string;
+  defaultBranch?: BranchOffice;
   onApplyApplicants: (applicants: GroupApplicantItem[]) => void;
 }
 
@@ -27,9 +31,20 @@ export const BulkPasteVisaModal: React.FC<BulkPasteVisaModalProps> = ({
   isOpen,
   onClose,
   defaultNationality = 'SRI LANKAN',
+  defaultBranch = 'Negombo',
   onApplyApplicants,
 }) => {
   const [pasteText, setPasteText] = useState('');
+  const [batchNationality, setBatchNationality] = useState(defaultNationality);
+  const [batchBranch, setBatchBranch] = useState<BranchOffice>(defaultBranch);
+
+  useEffect(() => {
+    setBatchNationality(defaultNationality);
+  }, [defaultNationality]);
+
+  useEffect(() => {
+    setBatchBranch(defaultBranch);
+  }, [defaultBranch]);
 
   // Parser helper function
   const parsedApplicants = useMemo<GroupApplicantItem[]>(() => {
@@ -59,10 +74,11 @@ export const BulkPasteVisaModal: React.FC<BulkPasteVisaModalProps> = ({
             firstName: (mrz.firstName || 'FIRSTNAME').toUpperCase(),
             passportNo: (mrz.passportNo || '').toUpperCase(),
             passportExpiry: mrz.expiryDate || 'N/A',
-            nationality: (mrz.nationality || defaultNationality).toUpperCase(),
+            nationality: (mrz.nationality || batchNationality).toUpperCase(),
             dob: mrz.dateOfBirth || '',
             unifiedNumber: '',
             icpFileNo: '',
+            branch: batchBranch,
           });
           i++; // Skip second MRZ line
           continue;
@@ -87,7 +103,7 @@ export const BulkPasteVisaModal: React.FC<BulkPasteVisaModalProps> = ({
       let extractedFirst = '';
       let extractedPass = '';
       let extractedExp = '';
-      let extractedNat = defaultNationality;
+      let extractedNat = batchNationality;
       let extractedDob = '';
 
       const nameTokens: string[] = [];
@@ -98,11 +114,8 @@ export const BulkPasteVisaModal: React.FC<BulkPasteVisaModalProps> = ({
         // A. Check for Date: DD/MM/YYYY or DD-MM-YYYY
         const dateMatch = cleanTok.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
         if (dateMatch) {
-          let [_, d, m, y] = dateMatch;
-          d = d.padStart(2, '0');
-          m = m.padStart(2, '0');
-          if (y.length === 2) y = `20${y}`;
-          const formattedDate = `${d}/${m}/${y}`;
+          const isDob = Boolean(extractedExp);
+          const formattedDate = normalizeToFullDate(cleanTok, isDob);
           if (!extractedExp) {
             extractedExp = formattedDate;
           } else if (!extractedDob) {
@@ -160,16 +173,17 @@ export const BulkPasteVisaModal: React.FC<BulkPasteVisaModalProps> = ({
           firstName: extractedFirst || 'FIRSTNAME',
           passportNo: extractedPass || `P0${Math.floor(100000 + Math.random() * 900000)}`,
           passportExpiry: extractedExp || 'N/A',
-          nationality: extractedNat.toUpperCase() || defaultNationality,
+          nationality: extractedNat.toUpperCase() || batchNationality,
           dob: extractedDob || '',
           unifiedNumber: '',
           icpFileNo: '',
+          branch: batchBranch,
         });
       }
     }
 
     return result;
-  }, [pasteText, defaultNationality]);
+  }, [pasteText, batchNationality, batchBranch]);
 
   if (!isOpen) return null;
 
@@ -240,6 +254,56 @@ export const BulkPasteVisaModal: React.FC<BulkPasteVisaModalProps> = ({
                 <strong>Passport MRZ:</strong> Paste 2-line machine readable zone blocks (<code className="font-mono">P&lt;LKA...</code>).
               </li>
             </ul>
+          </div>
+
+          {/* Batch Default Settings (Branch & Nationality) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3">
+            {/* Batch Branch */}
+            <div>
+              <span className="font-bold text-slate-800 text-xs block mb-1 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                Target Branch Office:
+              </span>
+              <div className="inline-flex w-full bg-white p-1 rounded-lg border border-slate-300">
+                <button
+                  type="button"
+                  onClick={() => setBatchBranch('Dubai')}
+                  className={`flex-1 py-1.5 px-2 rounded-md text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+                    batchBranch === 'Dubai'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-700 hover:bg-emerald-50'
+                  }`}
+                >
+                  <span>🇦🇪</span>
+                  <span>Dubai Branch</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBatchBranch('Negombo')}
+                  className={`flex-1 py-1.5 px-2 rounded-md text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+                    batchBranch === 'Negombo'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-700 hover:bg-blue-50'
+                  }`}
+                >
+                  <span>🇱🇰</span>
+                  <span>Negombo Branch</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Batch Default Nationality */}
+            <div>
+              <span className="font-bold text-slate-800 text-xs block mb-1">
+                Default Fallback Nationality:
+              </span>
+              <NationalitySelect
+                value={batchNationality}
+                onChange={setBatchNationality}
+                size="md"
+                showCustomToggle={false}
+              />
+            </div>
           </div>
 
           {/* Textarea Input */}

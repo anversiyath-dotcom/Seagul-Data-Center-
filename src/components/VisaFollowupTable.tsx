@@ -1,13 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { VisaFollowup, VisaStatus, VisaPaymentStatus, VISA_CATEGORIES } from '../types';
 import { 
   ArrowUpDown, MessageSquare, Download, Plus, Filter, Edit2, Trash2, CheckCircle, 
   Paperclip, Eye, X, FileText, Sparkles, Building2, Globe, ShieldCheck, Layers, 
   DollarSign, CreditCard, TrendingUp, AlertCircle, LayoutGrid, List, ChevronDown, 
-  ChevronUp, Copy, Check, ExternalLink, Clock, User, Calendar, Tag, Shield
+  ChevronUp, Copy, Check, ExternalLink, Clock, User, Calendar, Tag, Shield, Printer
 } from 'lucide-react';
 import { getVisaStatusBadgeClass, computeValidityText } from '../utils/helpers';
+import { normalizeToFullDate } from '../utils/imageUrlHelpers';
+import { getNationalityFlag } from '../data/nationalities';
 import { IcpTrackerModal } from './IcpTrackerModal';
+import { VisaRecordingReceiptPrint } from './VisaRecordingReceiptPrint';
+import { VisaFollowup, VisaStatus, VisaPaymentStatus, VISA_CATEGORIES, CompanyProfile, BranchFilter, BranchOffice, BRANCH_CONFIG, getCategoriesForBranch } from '../types';
 
 interface VisaFollowupTableProps {
   visas: VisaFollowup[];
@@ -16,6 +19,8 @@ interface VisaFollowupTableProps {
   setSelectedStatusFilter: (status: string) => void;
   selectedCategoryFilter?: string;
   setSelectedCategoryFilter?: (category: string) => void;
+  selectedBranchFilter?: BranchFilter;
+  setSelectedBranchFilter?: (branch: BranchFilter) => void;
   onOpenDetails?: (visa: VisaFollowup) => void;
   onOpenComments: (visa: VisaFollowup) => void;
   onAddNewVisa: () => void;
@@ -30,7 +35,9 @@ interface VisaFollowupTableProps {
     entryDate?: string
   ) => void;
   onUpdatePaymentStatus?: (id: string, paymentStatus: VisaPaymentStatus) => void;
+  onUpdateVisa?: (updatedVisa: VisaFollowup) => void;
   commentsCountMap: Record<string, number>;
+  companyProfile?: CompanyProfile;
 }
 
 type SortField = 
@@ -55,6 +62,8 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
   setSelectedStatusFilter,
   selectedCategoryFilter: controlledCategoryFilter,
   setSelectedCategoryFilter: setControlledCategoryFilter,
+  selectedBranchFilter: controlledBranchFilter,
+  setSelectedBranchFilter: setControlledBranchFilter,
   onOpenDetails,
   onOpenComments,
   onAddNewVisa,
@@ -62,12 +71,27 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
   onDeleteVisa,
   onUpdateStatus,
   onUpdatePaymentStatus,
-  commentsCountMap
+  commentsCountMap,
+  companyProfile,
+  onUpdateVisa
 }) => {
   // View mode: 'grid' (Comfortable Cards - all data visible at once) vs 'table' (Tabular spreadsheet view)
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [expandedRowIds, setExpandedRowIds] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [printingVisa, setPrintingVisa] = useState<VisaFollowup | null>(null);
+
+  const [internalBranchFilter, setInternalBranchFilter] = useState<BranchFilter>('All');
+  const selectedBranchFilter = controlledBranchFilter !== undefined ? controlledBranchFilter : internalBranchFilter;
+  const setSelectedBranchFilter = setControlledBranchFilter || setInternalBranchFilter;
+
+  const dubaiCount = React.useMemo(() => {
+    return (visas || []).filter(v => v.branch === 'Dubai').length;
+  }, [visas]);
+
+  const negomboCount = React.useMemo(() => {
+    return (visas || []).filter(v => v.branch !== 'Dubai').length;
+  }, [visas]);
 
   const [selectedCountryFilter, setSelectedCountryFilter] = useState<string>('ALL');
   const [internalCategoryFilter, setInternalCategoryFilter] = useState<string>('ALL');
@@ -102,7 +126,9 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
     'OutPass'
   ];
 
-  const categoryList = ['ALL', ...VISA_CATEGORIES];
+  const categoryList = useMemo(() => {
+    return ['ALL', ...getCategoriesForBranch(selectedBranchFilter)];
+  }, [selectedBranchFilter]);
 
   const toggleRowExpansion = (id: string) => {
     setExpandedRowIds(prev => {
@@ -197,6 +223,10 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
       entityTypeFilter === 'ALL' ||
       (entityTypeFilter === 'Customer' ? v.customerType === 'Customer' : (v.customerType || 'Agency') === 'Agency');
 
+    const itemBranch = v.branch === 'Dubai' ? 'Dubai' : 'Negombo';
+    const matchesBranch =
+      selectedBranchFilter === 'All' || itemBranch === selectedBranchFilter;
+
     return (
       matchesSearch && 
       matchesStatus && 
@@ -205,7 +235,8 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
       matchesAgency && 
       matchesSupplier &&
       matchesPaymentStatus &&
-      matchesEntityType
+      matchesEntityType &&
+      matchesBranch
     );
   });
 
@@ -582,121 +613,181 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
       )}
 
       {/* Top Status & Category Filter Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3.5">
         
-        {/* Status Filters */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-thin">
-          <Filter className="w-4 h-4 text-slate-400 shrink-0 mr-1" />
-          {statusList.map((st) => (
+        {/* Row 1: Status Filters & Action Buttons */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          {/* Status Filters */}
+          <div className="flex items-center space-x-2 overflow-x-auto pb-1 lg:pb-0 scrollbar-thin">
+            <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-500 shrink-0 mr-1">
+              <Filter className="w-4 h-4 text-slate-400" />
+              <span>Status:</span>
+            </div>
+            {statusList.map((st) => (
+              <button
+                key={st}
+                onClick={() => setSelectedStatusFilter(st)}
+                className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-all cursor-pointer ${
+                  selectedStatusFilter === st
+                    ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-500/20'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                }`}
+              >
+                {st}
+              </button>
+            ))}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center space-x-2 shrink-0">
             <button
-              key={st}
-              onClick={() => setSelectedStatusFilter(st)}
-              className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                selectedStatusFilter === st
-                  ? 'bg-blue-600 text-white shadow-sm font-bold'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              onClick={exportCSV}
+              className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs sm:text-sm font-bold transition-colors cursor-pointer"
+              title="Export full visa and financial registry as CSV"
             >
-              {st}
+              <Download className="w-4 h-4 text-slate-500" />
+              <span className="hidden sm:inline">Export</span>
             </button>
-          ))}
+
+            <a
+              href="https://smartservices.icp.gov.ae/echannels/web/client/default.html#/fileValidity"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center space-x-1.5 px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs sm:text-sm font-bold transition-colors cursor-pointer"
+              title="Open Official UAE ICP File Validity Portal"
+            >
+              <Globe className="w-4 h-4 text-blue-600" />
+              <span className="hidden sm:inline">ICP Portal</span>
+            </a>
+
+            <button
+              onClick={onAddNewVisa}
+              className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold transition-colors shadow-sm cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Visa Application</span>
+            </button>
+          </div>
         </div>
 
-        {/* Country, Category, Supplier, Payment & Action Controls */}
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          {/* Supplier Filter */}
-          <select
-            value={selectedSupplierFilter}
-            onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-            className="bg-slate-100 border border-slate-200 text-purple-900 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-purple-500 cursor-pointer"
-            title="Filter by Visa Supplier"
-          >
-            <option value="ALL">Supplier: All</option>
-            {supplierList.filter(s => s !== 'ALL').map((sup) => (
-              <option key={sup} value={sup}>
-                {sup}
-              </option>
-            ))}
-          </select>
+        {/* Row 2: Big, Easy-To-Select Filter Controls */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2.5 flex-1">
+            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center space-x-1 mr-1 shrink-0">
+              <Filter className="w-3.5 h-3.5" />
+              <span>Filters:</span>
+            </span>
 
-          {/* Payment Status Filter */}
-          <select
-            value={selectedPaymentStatusFilter}
-            onChange={(e) => setSelectedPaymentStatusFilter(e.target.value)}
-            className="bg-slate-100 border border-slate-200 text-emerald-900 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-            title="Filter by Payment Status"
-          >
-            <option value="ALL">Payment: All</option>
-            <option value="Paid">🟢 Paid</option>
-            <option value="Pending">🔴 Pending</option>
-            <option value="Partially Paid">🟡 Partially Paid</option>
-          </select>
+            {/* Branch Office Filter (Prominent & Spacious) */}
+            <div className="relative min-w-[170px] flex-1 sm:flex-initial">
+              <select
+                value={selectedBranchFilter}
+                onChange={(e) => setSelectedBranchFilter(e.target.value as BranchFilter)}
+                className="w-full bg-slate-100 hover:bg-slate-200 border-2 border-slate-300 text-slate-900 text-xs sm:text-sm font-extrabold rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-all"
+                title="Filter by Issuing Branch Office"
+              >
+                <option value="All">🏢 All Branches ({visas.length})</option>
+                <option value="Dubai">🇦🇪 Dubai Branch ({dubaiCount})</option>
+                <option value="Negombo">🇱🇰 Negombo Branch ({negomboCount})</option>
+              </select>
+            </div>
 
-          <select
-            value={selectedCountryFilter}
-            onChange={(e) => setSelectedCountryFilter(e.target.value)}
-            className="bg-slate-100 border border-slate-200 text-blue-900 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-          >
-            <option value="ALL">Country: All</option>
-            <option value="United Arab Emirates (UAE)">🇦🇪 UAE</option>
-            <option value="Saudi Arabia">🇸🇦 Saudi Arabia</option>
-            <option value="Qatar">🇶🇦 Qatar</option>
-            <option value="Oman">🇴🇲 Oman</option>
-            <option value="Kuwait">🇰🇼 Kuwait</option>
-            <option value="Bahrain">🇧🇭 Bahrain</option>
-            <option value="Malaysia">🇲🇾 Malaysia</option>
-            <option value="Singapore">🇸🇬 Singapore</option>
-            <option value="Indonesia">🇮🇩 Indonesia</option>
-            <option value="Thailand">🇹🇭 Thailand</option>
-            <option value="Turkey">🇹🇷 Turkey</option>
-            <option value="Schengen / Europe">🇪🇺 Schengen</option>
-            <option value="United Kingdom (UK)">🇬🇧 UK</option>
-            <option value="United States (USA)">🇺🇸 USA</option>
-            <option value="Canada">🇨🇦 Canada</option>
-            <option value="Australia">🇦🇺 Australia</option>
-            <option value="India">🇮🇳 India</option>
-            <option value="Sri Lanka">🇱🇰 Sri Lanka</option>
-          </select>
+            {/* Supplier Filter (Big & Spacious) */}
+            <div className="relative min-w-[170px] flex-1 sm:flex-initial">
+              <select
+                value={selectedSupplierFilter}
+                onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                className="w-full bg-purple-50/80 hover:bg-purple-100/70 border border-purple-200 text-purple-900 text-xs sm:text-sm font-bold rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer shadow-2xs transition-all"
+                title="Filter by Visa Supplier"
+              >
+                <option value="ALL">🏢 Supplier: All</option>
+                {supplierList.filter(s => s !== 'ALL').map((sup) => (
+                  <option key={sup} value={sup}>
+                    🏢 {sup}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <select
-            value={selectedCategoryFilter}
-            onChange={(e) => setSelectedCategoryFilter(e.target.value)}
-            className="bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-          >
-            {categoryList.map((cat) => (
-              <option key={cat} value={cat}>
-                Category: {cat}
-              </option>
-            ))}
-          </select>
+            {/* Payment Status Filter (Big & Spacious) */}
+            <div className="relative min-w-[160px] flex-1 sm:flex-initial">
+              <select
+                value={selectedPaymentStatusFilter}
+                onChange={(e) => setSelectedPaymentStatusFilter(e.target.value)}
+                className="w-full bg-emerald-50/80 hover:bg-emerald-100/70 border border-emerald-200 text-emerald-900 text-xs sm:text-sm font-bold rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer shadow-2xs transition-all"
+                title="Filter by Payment Status"
+              >
+                <option value="ALL">💳 Payment: All</option>
+                <option value="Paid">🟢 Paid</option>
+                <option value="Pending">🔴 Pending</option>
+                <option value="Partially Paid">🟡 Partially Paid</option>
+              </select>
+            </div>
 
-          <button
-            onClick={exportCSV}
-            className="flex items-center space-x-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-            title="Export full visa and financial registry as CSV"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Export</span>
-          </button>
+            {/* Destination Country Filter (Big & Spacious) */}
+            <div className="relative min-w-[190px] flex-1 sm:flex-initial">
+              <select
+                value={selectedCountryFilter}
+                onChange={(e) => setSelectedCountryFilter(e.target.value)}
+                className="w-full bg-blue-50/80 hover:bg-blue-100/70 border border-blue-200 text-blue-900 text-xs sm:text-sm font-bold rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-all"
+                title="Filter by Destination Country"
+              >
+                <option value="ALL">🌍 Country: All</option>
+                <option value="United Arab Emirates (UAE)">🇦🇪 UAE</option>
+                <option value="Saudi Arabia">🇸🇦 Saudi Arabia</option>
+                <option value="Qatar">🇶🇦 Qatar</option>
+                <option value="Oman">🇴🇲 Oman</option>
+                <option value="Kuwait">🇰🇼 Kuwait</option>
+                <option value="Bahrain">🇧🇭 Bahrain</option>
+                <option value="Malaysia">🇲🇾 Malaysia</option>
+                <option value="Singapore">🇸🇬 Singapore</option>
+                <option value="Indonesia">🇮🇩 Indonesia</option>
+                <option value="Thailand">🇹🇭 Thailand</option>
+                <option value="Turkey">🇹🇷 Turkey</option>
+                <option value="Schengen / Europe">🇪🇺 Schengen</option>
+                <option value="United Kingdom (UK)">🇬🇧 UK</option>
+                <option value="United States (USA)">🇺🇸 USA</option>
+                <option value="Canada">🇨🇦 Canada</option>
+                <option value="Australia">🇦🇺 Australia</option>
+                <option value="India">🇮🇳 India</option>
+                <option value="Sri Lanka">🇱🇰 Sri Lanka</option>
+              </select>
+            </div>
 
-          <a
-            href="https://smartservices.icp.gov.ae/echannels/web/client/default.html#/fileValidity"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center space-x-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-            title="Open Official UAE ICP File Validity Portal"
-          >
-            <Globe className="w-3.5 h-3.5 text-blue-600" />
-            <span className="hidden sm:inline">ICP Portal</span>
-          </a>
+            {/* Category / Services Filter (Big & Spacious) */}
+            <div className="relative min-w-[170px] flex-1 sm:flex-initial">
+              <select
+                value={selectedCategoryFilter}
+                onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+                className="w-full bg-amber-50/80 hover:bg-amber-100/70 border border-amber-200 text-amber-950 text-xs sm:text-sm font-bold rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-2xs transition-all"
+                title={selectedBranchFilter === 'Dubai' ? "Filter by Services / Visa Category" : "Filter by Visa Category"}
+              >
+                {categoryList.map((cat) => (
+                  <option key={cat} value={cat}>
+                    🏷️ {cat === 'ALL' ? (selectedBranchFilter === 'Dubai' ? 'All Services & Visas' : 'Category: All') : cat}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <button
-            onClick={onAddNewVisa}
-            className="flex items-center space-x-1 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-sm cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Visa Application</span>
-          </button>
+            {/* Clear Filters Button (When any filter is active) */}
+            {(selectedSupplierFilter !== 'ALL' || selectedPaymentStatusFilter !== 'ALL' || selectedCountryFilter !== 'ALL' || selectedCategoryFilter !== 'ALL') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSupplierFilter('ALL');
+                  setSelectedPaymentStatusFilter('ALL');
+                  setSelectedCountryFilter('ALL');
+                  setSelectedCategoryFilter('ALL');
+                }}
+                className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs sm:text-sm font-bold rounded-xl transition-all cursor-pointer flex items-center space-x-1 shrink-0"
+                title="Reset all filters back to All"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Reset Filters</span>
+              </button>
+            )}
+          </div>
         </div>
 
       </div>
@@ -707,10 +798,30 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
       {viewMode === 'grid' && (
         <div className="space-y-4">
           {sortedVisas.length === 0 ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
-              <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-              <p className="font-semibold text-slate-600">No visa application records found matching filter criteria.</p>
-              <p className="text-xs text-slate-400 mt-1">Try selecting different status or search terms above.</p>
+            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500 space-y-3">
+              <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto text-2xl border border-emerald-200 shadow-2xs">
+                {selectedBranchFilter === 'Dubai' ? '🇦🇪' : <AlertCircle className="w-6 h-6 text-slate-400" />}
+              </div>
+              <div>
+                <p className="font-extrabold text-base text-slate-800">
+                  {selectedBranchFilter === 'Dubai' ? 'Dubai Branch has no visa records yet' : 'No visa application records found matching filter criteria.'}
+                </p>
+                <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                  {selectedBranchFilter === 'Dubai'
+                    ? 'All historical data belongs to Sri Lanka Head Office. Dubai branch is ready for fresh data entry.'
+                    : 'Try selecting different status or search terms above.'}
+                </p>
+              </div>
+              {selectedBranchFilter === 'Dubai' && (
+                <button
+                  type="button"
+                  onClick={onAddNewVisa}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm inline-flex items-center space-x-1.5 transition-colors cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Enter First Dubai Visa</span>
+                </button>
+              )}
             </div>
           ) : isGroupedByAgency ? (
             (Object.entries(groupedVisas) as [string, VisaFollowup[]][]).map(([agencyName, agencyVisas]) => (
@@ -804,8 +915,8 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
                     onClick={() => handleSort('visaCategory')}
                     className="py-3 px-3 cursor-pointer hover:bg-black/10 transition-colors whitespace-nowrap"
                   >
-                    <div className="flex items-center justify-between">
-                      <span>Visa Category</span>
+                    <div className="flex items-center justify-between space-x-1.5">
+                      <span>{selectedBranchFilter === 'Dubai' ? 'Services / Category' : 'Visa Category'}</span>
                       <ArrowUpDown className="w-3 h-3 opacity-80" />
                     </div>
                   </th>
@@ -1006,6 +1117,71 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
         />
       )}
 
+      {/* Customer Visa Recording Receipt Modal */}
+      {printingVisa && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[95vh] flex flex-col overflow-hidden border border-slate-200">
+            {/* Modal Header */}
+            <div className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <Printer className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base text-white">
+                    Official Visa Recording Receipt
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Seagull Global Letterhead • {printingVisa.lastName || ''} {printingVisa.firstName || ''} (Passport: {printingVisa.passportNo})
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-lg text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Print official receipt or save as PDF"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print Receipt</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrintingVisa(null)}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                  title="Close receipt preview"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Hidden printable block for print media */}
+            <div className="hidden print:block">
+              <VisaRecordingReceiptPrint 
+                visa={printingVisa} 
+                companyProfile={companyProfile}
+                onUpdateVisa={(updated) => {
+                  setPrintingVisa(updated);
+                  if (onUpdateVisa) onUpdateVisa(updated);
+                }} 
+              />
+            </div>
+
+            {/* Visual preview */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-6 bg-slate-200 flex justify-center">
+              <VisaRecordingReceiptPrint 
+                visa={printingVisa} 
+                companyProfile={companyProfile}
+                onUpdateVisa={(updated) => {
+                  setPrintingVisa(updated);
+                  if (onUpdateVisa) onUpdateVisa(updated);
+                }} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 
@@ -1088,20 +1264,33 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
                   </button>
                 </span>
                 <span className="text-[10px] text-slate-500">Exp: <strong className="font-mono text-emerald-700">{v.passportExpiry || 'N/A'}</strong></span>
-                <span className="text-[10px] bg-slate-100 text-slate-700 font-semibold px-1.5 py-0.5 rounded">
-                  {v.nationality || 'SRI LANKAN'}
+                <span className="text-[10px] bg-slate-100 text-slate-700 font-semibold px-1.5 py-0.5 rounded inline-flex items-center space-x-1">
+                  <span>{getNationalityFlag(v.nationality)}</span>
+                  <span>{v.nationality || 'SRI LANKAN'}</span>
                 </span>
               </div>
             </div>
 
             {/* Country & Category Badge */}
-            <div className="text-right shrink-0">
+            <div className="text-right shrink-0 space-y-1">
               <span className="inline-block bg-blue-600 text-white font-bold text-[10px] px-2 py-0.5 rounded-full shadow-2xs">
                 {v.visaCategory}
               </span>
-              <div className="text-[10px] font-semibold text-slate-600 mt-1 flex items-center justify-end space-x-1">
-                <Globe className="w-3 h-3 text-blue-500" />
-                <span>{v.destinationCountry || 'UAE'}</span>
+              <div className="flex items-center justify-end space-x-1.5 text-[10px]">
+                <span className="font-semibold text-slate-600 flex items-center space-x-1">
+                  <Globe className="w-3 h-3 text-blue-500" />
+                  <span>{v.destinationCountry || 'UAE'}</span>
+                </span>
+                {(() => {
+                  const isDubai = v.branch === 'Dubai' || (!v.branch && (v.currency === 'AED' || v.destinationCountry?.includes('UAE')));
+                  return (
+                    <span className={`px-1.5 py-0.2 rounded font-bold border text-[9px] inline-flex items-center space-x-1 ${
+                      isDubai ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-blue-50 text-blue-800 border-blue-300'
+                    }`}>
+                      <span>{isDubai ? '🇦🇪 Dubai' : '🇱🇰 Negombo'}</span>
+                    </span>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -1124,7 +1313,7 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
               {v.dob && (
                 <div>
                   <span className="text-slate-400 font-sans block text-[9px]">Date of Birth</span>
-                  <span className="font-bold text-slate-700">{v.dob}</span>
+                  <span className="font-bold text-slate-700">{normalizeToFullDate(v.dob)}</span>
                 </div>
               )}
             </div>
@@ -1134,7 +1323,7 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
           <div className="grid grid-cols-2 gap-2 bg-blue-50/40 p-2.5 rounded-lg border border-blue-100 text-xs">
             <div>
               <span className="text-[10px] font-semibold text-slate-500 block">Entry Date:</span>
-              <span className="font-mono font-bold text-slate-800">{v.entryDate || 'Not Entered'}</span>
+              <span className="font-mono font-bold text-slate-800">{normalizeToFullDate(v.entryDate) || 'Not Entered'}</span>
             </div>
             <div>
               <span className="text-[10px] font-semibold text-slate-500 block">Validity / Expiry:</span>
@@ -1143,6 +1332,11 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
                   <span className="text-red-600 font-mono">{validityInfo.mainText}</span>
                 ) : (
                   <span className="text-emerald-700 font-mono">{validityInfo.mainText}</span>
+                )}
+                {validityInfo.subText && (
+                  <span className="text-[10px] text-slate-500 font-normal block font-mono">
+                    {validityInfo.subText}
+                  </span>
                 )}
               </div>
             </div>
@@ -1242,6 +1436,16 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
                 <span>Details</span>
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={() => setPrintingVisa(v)}
+              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs rounded-lg shadow-2xs flex items-center space-x-1 cursor-pointer transition-colors"
+              title="Print Customer Visa Recording Receipt"
+            >
+              <Printer className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Receipt</span>
+            </button>
           </div>
 
           <div className="flex items-center space-x-1">
@@ -1327,8 +1531,9 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
           <td className="py-3 px-3 font-bold text-slate-900 uppercase">
             <div>{v.lastName} {v.firstName}</div>
             <div className="flex flex-wrap items-center gap-1 mt-0.5 font-normal">
-              <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border border-slate-200">
-                {v.nationality || 'SRI LANKAN'}
+              <span className="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded border border-slate-200 inline-flex items-center space-x-1">
+                <span>{getNationalityFlag(v.nationality)}</span>
+                <span>{v.nationality || 'SRI LANKAN'}</span>
               </span>
               {v.unifiedNumber && (
                 <span className="text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.2 rounded border border-purple-200 font-mono font-bold">
@@ -1352,16 +1557,28 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
               </button>
             </div>
             <div className="text-[10px] text-emerald-600 font-normal">
-              Exp: {v.passportExpiry || 'N/A'}
+              Exp: {normalizeToFullDate(v.passportExpiry) || 'N/A'}
             </div>
           </td>
 
           {/* Visa Category & Country */}
           <td className="py-3 px-3 font-medium text-slate-700 whitespace-nowrap">
             <div className="font-bold text-slate-900">{v.visaCategory}</div>
-            <div className="inline-flex items-center space-x-1 mt-0.5 px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 font-bold text-[10px] border border-blue-200">
-              <Globe className="w-2.5 h-2.5 text-blue-600 shrink-0" />
-              <span>{v.destinationCountry || 'UAE'}</span>
+            <div className="flex items-center space-x-1.5 mt-0.5">
+              <div className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 font-bold text-[10px] border border-blue-200">
+                <Globe className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                <span>{v.destinationCountry || 'UAE'}</span>
+              </div>
+              {(() => {
+                const isDubai = v.branch === 'Dubai' || (!v.branch && (v.currency === 'AED' || v.destinationCountry?.includes('UAE')));
+                return (
+                  <span className={`px-1.5 py-0.5 rounded font-bold border text-[9px] inline-flex items-center space-x-1 ${
+                    isDubai ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-blue-50 text-blue-800 border-blue-300'
+                  }`}>
+                    <span>{isDubai ? '🇦🇪 Dubai' : '🇱🇰 Negombo'}</span>
+                  </span>
+                );
+              })()}
             </div>
           </td>
 
@@ -1407,7 +1624,7 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
 
           {/* Entry Date */}
           <td className="py-3 px-3 font-mono text-slate-700 whitespace-nowrap">
-            {v.entryDate || 'N/A'}
+            {normalizeToFullDate(v.entryDate) || 'N/A'}
           </td>
 
           {/* Validity */}
@@ -1419,6 +1636,11 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
             ) : (
               <span className="text-emerald-700 font-bold block text-[11px] font-mono">
                 {validityInfo.mainText}
+              </span>
+            )}
+            {validityInfo.subText && (
+              <span className="text-[10px] text-slate-500 block font-mono">
+                {validityInfo.subText}
               </span>
             )}
           </td>
@@ -1468,6 +1690,15 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
                   <FileText className="w-3.5 h-3.5" />
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={() => setPrintingVisa(v)}
+                className="p-1.5 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50 rounded transition-colors cursor-pointer"
+                title="Print Customer Visa Recording Receipt"
+              >
+                <Printer className="w-3.5 h-3.5" />
+              </button>
 
               <button
                 type="button"
@@ -1533,10 +1764,19 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
                         onClick={() => onOpenDetails(v)}
                         className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-lg border border-slate-300 flex items-center space-x-1 cursor-pointer"
                       >
-                        <FileText className="w-3 h-3" />
-                        <span>Print Official Slip</span>
+                        <FileText className="w-3 h-3 text-blue-600" />
+                        <span>View Details</span>
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => setPrintingVisa(v)}
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs flex items-center space-x-1 cursor-pointer"
+                      title="Print Customer Visa Recording Receipt"
+                    >
+                      <Printer className="w-3 h-3" />
+                      <span>Print Customer Receipt</span>
+                    </button>
                   </div>
                 </div>
 
@@ -1555,7 +1795,10 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
                   </div>
                   <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
                     <span className="text-slate-500 font-medium block text-[10px]">Nationality</span>
-                    <span className="font-bold text-slate-800">{v.nationality || 'SRI LANKAN'}</span>
+                    <span className="font-bold text-slate-800 flex items-center space-x-1 mt-0.5">
+                      <span>{getNationalityFlag(v.nationality)}</span>
+                      <span>{v.nationality || 'SRI LANKAN'}</span>
+                    </span>
                   </div>
                 </div>
 

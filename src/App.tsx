@@ -1,20 +1,38 @@
 import React, { useState, useEffect } from 'react';
-import { TicketFollowup, VisaFollowup, ActivityComment, VisaStatus, TicketStatus, CompanyProfile, DEFAULT_COMPANY_PROFILE, VisaPaymentStatus, TicketPaymentStatus } from './types';
+import { 
+  TicketFollowup, 
+  VisaFollowup, 
+  ActivityComment, 
+  VisaStatus, 
+  TicketStatus, 
+  CompanyProfile, 
+  DEFAULT_COMPANY_PROFILE, 
+  VisaPaymentStatus, 
+  TicketPaymentStatus, 
+  BranchFilter, 
+  BranchOffice, 
+  BRANCH_CONFIG,
+  ExpenseItem 
+} from './types';
 import { INITIAL_TICKETS, INITIAL_VISAS, INITIAL_COMMENTS } from './data/initialData';
 import { 
   subscribeToTickets, 
   subscribeToVisas, 
   subscribeToComments, 
   subscribeToCompanyProfile, 
+  subscribeToExpenses,
   saveTicketToFirestore, 
   deleteTicketFromFirestore, 
   saveVisaToFirestore, 
   deleteVisaFromFirestore, 
   saveCommentToFirestore, 
   saveCompanyProfileToFirestore, 
+  saveExpenseToFirestore,
+  deleteExpenseFromFirestore,
   clearAllFirestoreData, 
   seedDemoFirestoreData,
-  checkAndSeedInitialDataIfNeeded
+  checkAndSeedInitialDataIfNeeded,
+  ensureDubaiBranchEmptyAndAssignAllToSriLanka
 } from './lib/firestoreService';
 import { safeGetItem, safeSetItem, safeRemoveItem, sanitizeVisasForLocalCache } from './utils/safeStorage';
 import { Header } from './components/Header';
@@ -56,6 +74,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'tickets' | 'visas' | 'accounting'>('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Branch Office Filter state (All / Dubai / Negombo)
+  const [selectedBranch, setSelectedBranch] = useState<BranchFilter>(() => {
+    return safeGetItem<BranchFilter>('tf_selected_branch', 'All');
+  });
+
+  useEffect(() => {
+    safeSetItem('tf_selected_branch', selectedBranch);
+  }, [selectedBranch]);
+
   // Main Datasets with Safe Storage persistence
   const [tickets, setTickets] = useState<TicketFollowup[]>(() => {
     return safeGetItem<TicketFollowup[]>('tf_tickets', []);
@@ -67,6 +94,10 @@ export default function App() {
 
   const [comments, setComments] = useState<ActivityComment[]>(() => {
     return safeGetItem<ActivityComment[]>('tf_comments', []);
+  });
+
+  const [expenses, setExpenses] = useState<ExpenseItem[]>(() => {
+    return safeGetItem<ExpenseItem[]>('tf_expenses', []);
   });
 
   // Company Profile state with Safe Storage persistence
@@ -94,6 +125,10 @@ export default function App() {
   }, [comments]);
 
   useEffect(() => {
+    safeSetItem('tf_expenses', expenses);
+  }, [expenses]);
+
+  useEffect(() => {
     safeSetItem('tf_company_profile', companyProfile);
   }, [companyProfile]);
 
@@ -114,6 +149,10 @@ export default function App() {
       setComments(fireComments);
     });
 
+    const unsubExpenses = subscribeToExpenses((fireExpenses) => {
+      setExpenses(fireExpenses);
+    });
+
     const unsubProfile = subscribeToCompanyProfile((fireProfile) => {
       if (fireProfile && fireProfile.companyName) {
         setCompanyProfile(fireProfile);
@@ -124,8 +163,21 @@ export default function App() {
       unsubTickets();
       unsubVisas();
       unsubComments();
+      unsubExpenses();
       unsubProfile();
     };
+  }, []);
+
+  // Automatic migration: Assign all existing historical records to Sri Lanka branch (Negombo)
+  // so Dubai branch starts completely clean with 0 records
+  useEffect(() => {
+    const migrationFlag = 'tf_branch_migration_srilanka_all_v3';
+    if (!localStorage.getItem(migrationFlag)) {
+      localStorage.setItem(migrationFlag, 'true');
+      setTickets(prev => (Array.isArray(prev) ? prev.map(t => ({ ...t, branch: 'Negombo' as const })) : []));
+      setVisas(prev => (Array.isArray(prev) ? prev.map(v => ({ ...v, branch: 'Negombo' as const })) : []));
+      ensureDubaiBranchEmptyAndAssignAllToSriLanka();
+    }
   }, []);
 
   // Dynamic list of recorded Agency / Customer names
@@ -147,6 +199,33 @@ export default function App() {
 
     return Array.from(names).sort();
   }, [visas, tickets, companyProfile]);
+
+  // Branch Office Datasets and counts
+  // All historical data entered belongs exclusively to Sri Lanka (Negombo) branch.
+  // Dubai branch contains ONLY records explicitly created under Dubai branch.
+  const dubaiVisas = React.useMemo(() => {
+    return (visas || []).filter(v => v.branch === 'Dubai');
+  }, [visas]);
+
+  const negomboVisas = React.useMemo(() => {
+    return (visas || []).filter(v => v.branch !== 'Dubai');
+  }, [visas]);
+
+  const dubaiTickets = React.useMemo(() => {
+    return (tickets || []).filter(t => t.branch === 'Dubai');
+  }, [tickets]);
+
+  const negomboTickets = React.useMemo(() => {
+    return (tickets || []).filter(t => t.branch !== 'Dubai');
+  }, [tickets]);
+
+  const dubaiExpenses = React.useMemo(() => {
+    return (expenses || []).filter(e => e.branch === 'Dubai');
+  }, [expenses]);
+
+  const negomboExpenses = React.useMemo(() => {
+    return (expenses || []).filter(e => e.branch !== 'Dubai');
+  }, [expenses]);
 
   // Filters
   const [selectedTicketStatusFilter, setSelectedTicketStatusFilter] = useState<string>('ALL');
@@ -205,6 +284,22 @@ export default function App() {
   // Reset to clean dataset
   const handleResetToDemoData = handleClearAllData;
   const handleResetData = handleClearAllData;
+
+  // Reassign all existing records to Sri Lanka branch and keep Dubai empty
+  const handleReassignAllToSriLanka = () => {
+    setIsCompanySettingsOpen(false);
+    setConfirmModal({
+      isOpen: true,
+      title: 'Assign All Data to Sri Lanka Branch',
+      message: 'This will ensure all existing air tickets and visa records belong to the Sri Lanka (Negombo) branch, keeping the Dubai branch 100% clean with 0 records ready for new UAE entries. Proceed?',
+      confirmLabel: 'Assign to Sri Lanka Branch',
+      onConfirm: async () => {
+        setTickets(prev => (Array.isArray(prev) ? prev.map(t => ({ ...t, branch: 'Negombo' as const })) : []));
+        setVisas(prev => (Array.isArray(prev) ? prev.map(v => ({ ...v, branch: 'Negombo' as const })) : []));
+        await ensureDubaiBranchEmptyAndAssignAllToSriLanka();
+      }
+    });
+  };
 
   // Ticket CRUD operations
   const handleAddTicket = (newTicket: TicketFollowup) => {
@@ -372,6 +467,22 @@ export default function App() {
     saveCommentToFirestore(newComment);
   };
 
+  // Expense Handlers
+  const handleAddExpense = (newExpense: ExpenseItem) => {
+    setExpenses(prev => [newExpense, ...prev]);
+    saveExpenseToFirestore(newExpense);
+  };
+
+  const handleUpdateExpense = (updatedExpense: ExpenseItem) => {
+    setExpenses(prev => prev.map(e => e.id === updatedExpense.id ? updatedExpense : e));
+    saveExpenseToFirestore(updatedExpense);
+  };
+
+  const handleDeleteExpense = (id: string) => {
+    setExpenses(prev => prev.filter(e => e.id !== id));
+    deleteExpenseFromFirestore(id);
+  };
+
   // Map comment count
   const commentsCountMap = comments.reduce((acc, c) => {
     acc[c.targetId] = (acc[c.targetId] || 0) + 1;
@@ -405,15 +516,112 @@ export default function App() {
         onLogout={handleLogout}
         onOpenCompanySettings={() => setIsCompanySettingsOpen(true)}
         companyProfile={companyProfile}
+        selectedBranch={selectedBranch}
+        setSelectedBranch={setSelectedBranch}
+        dubaiVisaCount={dubaiVisas.length}
+        dubaiTicketCount={dubaiTickets.length}
+        negomboVisaCount={negomboVisas.length}
+        negomboTicketCount={negomboTickets.length}
       />
+
+      {/* Active Branch Context Notification Bar */}
+      {selectedBranch === 'Dubai' && (
+        <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-emerald-900 text-white border-b border-emerald-500/40 px-4 py-2.5 shadow-md">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+            <div className="flex items-center space-x-2.5">
+              <span className="text-2xl drop-shadow">🇦🇪</span>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="font-black text-emerald-300 uppercase tracking-wider text-xs">
+                    DUBAI BRANCH SYSTEM ACTIVE
+                  </span>
+                  <span className="bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 px-2 py-0.2 rounded-full font-mono text-[10px]">
+                    UAE Office
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-300 font-medium">
+                  Coastal building, Al tawar center Dubai • Tel: +971 52 263 6372 • Currency: AED
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2 shrink-0">
+              <span className="bg-emerald-900/70 border border-emerald-500/40 px-2.5 py-1 rounded-lg text-[11px] font-mono text-emerald-200">
+                {dubaiVisas.length} Visas • {dubaiTickets.length} Tickets
+              </span>
+              <button
+                onClick={() => {
+                  setEditingVisa(null);
+                  setIsAddVisaOpen(true);
+                }}
+                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs"
+              >
+                + Dubai Visa
+              </button>
+              <button
+                onClick={() => {
+                  setEditingTicket(null);
+                  setIsAddTicketOpen(true);
+                }}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+              >
+                + Dubai Ticket
+              </button>
+              <button
+                onClick={() => setSelectedBranch('All')}
+                className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg text-[11px] font-medium transition-colors cursor-pointer"
+              >
+                View All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedBranch === 'Negombo' && (
+        <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-blue-900 text-white border-b border-blue-500/40 px-4 py-2.5 shadow-md">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+            <div className="flex items-center space-x-2.5">
+              <span className="text-2xl drop-shadow">🇱🇰</span>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="font-black text-blue-300 uppercase tracking-wider text-xs">
+                    NEGOMBO BRANCH SYSTEM ACTIVE
+                  </span>
+                  <span className="bg-blue-500/20 text-blue-200 border border-blue-400/30 px-2 py-0.2 rounded-full font-mono text-[10px]">
+                    Sri Lanka Head Office
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-300 font-medium">
+                  45/1/1 Meerigama Road, Pankada junction, Negombo • Tel: +94 70 170 4613 • Currency: LKR
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2 shrink-0">
+              <span className="bg-blue-900/70 border border-blue-500/40 px-2.5 py-1 rounded-lg text-[11px] font-mono text-blue-200">
+                {negomboVisas.length} Visas • {negomboTickets.length} Tickets
+              </span>
+              <button
+                onClick={() => setSelectedBranch('All')}
+                className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg text-[11px] font-medium transition-colors cursor-pointer"
+              >
+                View All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Screen Content */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
         
         {activeTab === 'dashboard' && (
           <DashboardOverview
-            tickets={tickets}
-            visas={visas}
+            tickets={selectedBranch === 'Dubai' ? dubaiTickets : selectedBranch === 'Negombo' ? negomboTickets : tickets}
+            visas={selectedBranch === 'Dubai' ? dubaiVisas : selectedBranch === 'Negombo' ? negomboVisas : visas}
+            expenses={selectedBranch === 'Dubai' ? dubaiExpenses : selectedBranch === 'Negombo' ? negomboExpenses : expenses}
+            selectedBranch={selectedBranch}
             onSelectVisaStatusFilter={(st) => setSelectedVisaStatusFilter(st)}
             onSelectTicketStatusFilter={(st) => setSelectedTicketStatusFilter(st)}
             onSelectVisaCategoryFilter={(cat) => setSelectedVisaCategoryFilter(cat)}
@@ -429,6 +637,8 @@ export default function App() {
             searchTerm={searchTerm}
             selectedStatusFilter={selectedTicketStatusFilter}
             setSelectedStatusFilter={setSelectedTicketStatusFilter}
+            selectedBranchFilter={selectedBranch}
+            setSelectedBranchFilter={setSelectedBranch}
             onOpenDetails={(t) => setDetailModalTicket(t)}
             onOpenComments={(t) => {
               setCommentsModalItem(t);
@@ -457,6 +667,8 @@ export default function App() {
             setSelectedStatusFilter={setSelectedVisaStatusFilter}
             selectedCategoryFilter={selectedVisaCategoryFilter}
             setSelectedCategoryFilter={setSelectedVisaCategoryFilter}
+            selectedBranchFilter={selectedBranch}
+            setSelectedBranchFilter={setSelectedBranch}
             onOpenDetails={(v) => setDetailModalVisa(v)}
             onOpenComments={(v) => {
               setCommentsModalItem(v);
@@ -473,20 +685,27 @@ export default function App() {
             onDeleteVisa={handleDeleteVisa}
             onUpdateStatus={handleUpdateVisaStatus}
             onUpdatePaymentStatus={handleUpdateVisaPaymentStatus}
+            onUpdateVisa={handleUpdateVisa}
             commentsCountMap={commentsCountMap}
+            companyProfile={companyProfile}
           />
         )}
 
         {activeTab === 'accounting' && (
           <FinancialAccountingView
-            tickets={tickets}
-            visas={visas}
+            tickets={selectedBranch === 'Dubai' ? dubaiTickets : selectedBranch === 'Negombo' ? negomboTickets : tickets}
+            visas={selectedBranch === 'Dubai' ? dubaiVisas : selectedBranch === 'Negombo' ? negomboVisas : visas}
+            expenses={selectedBranch === 'Dubai' ? dubaiExpenses : selectedBranch === 'Negombo' ? negomboExpenses : expenses}
+            selectedBranch={selectedBranch}
             companyProfile={companyProfile}
             onOpenTicketDetails={(t) => setDetailModalTicket(t)}
             onOpenVisaDetails={(v) => setDetailModalVisa(v)}
             onNavigateTab={(tab) => setActiveTab(tab)}
             onUpdateTicketPaymentStatus={handleUpdateTicketPaymentStatus}
             onUpdateVisaPaymentStatus={handleUpdateVisaPaymentStatus}
+            onAddExpense={handleAddExpense}
+            onUpdateExpense={handleUpdateExpense}
+            onDeleteExpense={handleDeleteExpense}
           />
         )}
 
@@ -571,6 +790,7 @@ export default function App() {
           setActiveTab('tickets');
           setDetailModalTicket(ticket);
         }}
+        defaultBranch={selectedBranch === 'Dubai' ? 'Dubai' : 'Negombo'}
       />
 
       <AddVisaModal
@@ -591,6 +811,7 @@ export default function App() {
           setCommentsModalItem(visa);
           setCommentsTargetType('visa');
         }}
+        defaultBranch={selectedBranch === 'Dubai' ? 'Dubai' : 'Negombo'}
       />
 
       <ConfirmModal
@@ -612,6 +833,7 @@ export default function App() {
         }}
         onClearAllData={handleClearAllData}
         onResetToDemoData={handleResetToDemoData}
+        onReassignAllToSriLanka={handleReassignAllToSriLanka}
       />
 
       {/* Footer */}

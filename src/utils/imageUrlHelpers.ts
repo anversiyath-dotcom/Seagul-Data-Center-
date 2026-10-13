@@ -1,3 +1,5 @@
+import { ALL_NATIONALITIES } from '../data/nationalities';
+
 /**
  * Utility functions for handling GitHub URLs, raw image links, and Machine Readable Zone (MRZ) passport data
  */
@@ -79,10 +81,14 @@ export function isGitHubUrl(url: string): boolean {
 
 /**
  * Country code to standard nationality name mapping (ICAO Doc 9303 codes)
+ * Covers all world countries dynamically with fallback presets
  */
-export const ICAO_COUNTRY_MAP: Record<string, string> = {
+export const ICAO_COUNTRY_MAP: Record<string, string> = ALL_NATIONALITIES.reduce((acc, curr) => {
+  acc[curr.code] = curr.nationality;
+  return acc;
+}, {
   LKA: 'SRI LANKAN',
-  ARE: 'UNITED ARAB EMIRATES',
+  ARE: 'EMIRATI',
   IND: 'INDIAN',
   PAK: 'PAKISTANI',
   BGD: 'BANGLADESHI',
@@ -92,7 +98,7 @@ export const ICAO_COUNTRY_MAP: Record<string, string> = {
   JOR: 'JORDANIAN',
   SYR: 'SYRIAN',
   LBN: 'LEBANESE',
-  SAU: 'SAUDI ARABIAN',
+  SAU: 'SAUDI',
   OMN: 'OMANI',
   QAT: 'QATARI',
   KWT: 'KUWAITI',
@@ -106,7 +112,156 @@ export const ICAO_COUNTRY_MAP: Record<string, string> = {
   USA: 'AMERICAN',
   CAN: 'CANADIAN',
   AUS: 'AUSTRALIAN',
+} as Record<string, string>);
+
+const MONTH_MAP: Record<string, string> = {
+  JAN: '01', JANU: '01', JANUARY: '01',
+  FEB: '02', FEBR: '02', FEBRUARY: '02',
+  MAR: '03', MARC: '03', MARCH: '03',
+  APR: '04', APRI: '04', APRIL: '04',
+  MAY: '05',
+  JUN: '06', JUNE: '06',
+  JUL: '07', JULY: '07',
+  AUG: '08', AUGU: '08', AUGUST: '08',
+  SEP: '09', SEPT: '09', SEPTEMBER: '09',
+  OCT: '10', OCTO: '10', OCTOBER: '10',
+  NOV: '11', NOVE: '11', NOVEMBER: '11',
+  DEC: '12', DECE: '12', DECEMBER: '12',
 };
+
+/**
+ * Normalizes any date format into a full DD/MM/YYYY string with a 4-digit year.
+ * Handles partial airline dates (25AUG, 25AUG26, 25/08), 2-digit years (21/02/35),
+ * ISO strings (2026-08-25), and MRZ date strings (YYMMDD).
+ */
+export function normalizeToFullDate(raw?: string | null, isDob: boolean = false): string {
+  if (!raw || typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === 'N/A' || trimmed === 'Pending' || trimmed === 'undefined' || trimmed === 'null') {
+    return trimmed === 'N/A' ? 'N/A' : '';
+  }
+
+  const currentYear = new Date().getFullYear();
+  const currentYY = currentYear % 100;
+
+  // 1. Standard DD/MM/YYYY
+  const standardMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (standardMatch) {
+    const d = standardMatch[1].padStart(2, '0');
+    const m = standardMatch[2].padStart(2, '0');
+    const y = standardMatch[3];
+    return `${d}/${m}/${y}`;
+  }
+
+  // 2. DD/MM/YY (2-digit year)
+  const dmyTwoMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+  if (dmyTwoMatch) {
+    const d = dmyTwoMatch[1].padStart(2, '0');
+    const m = dmyTwoMatch[2].padStart(2, '0');
+    const yy = parseInt(dmyTwoMatch[3], 10);
+    const fullYear = isDob 
+      ? (yy > currentYY ? 1900 + yy : 2000 + yy)
+      : (yy > 70 ? 1900 + yy : 2000 + yy);
+    return `${d}/${m}/${fullYear}`;
+  }
+
+  // 3. ISO YYYY-MM-DD or YYYY/MM/DD
+  const isoMatch = trimmed.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+  if (isoMatch) {
+    const y = isoMatch[1];
+    const m = isoMatch[2].padStart(2, '0');
+    const d = isoMatch[3].padStart(2, '0');
+    return `${d}/${m}/${y}`;
+  }
+
+  // 4. DD-MM-YYYY or DD.MM.YYYY
+  const dotDashMatch = trimmed.match(/^(\d{1,2})[-\.](\d{1,2})[-\.](\d{4})$/);
+  if (dotDashMatch) {
+    const d = dotDashMatch[1].padStart(2, '0');
+    const m = dotDashMatch[2].padStart(2, '0');
+    const y = dotDashMatch[3];
+    return `${d}/${m}/${y}`;
+  }
+
+  // 5. DD-MM-YY or DD.MM.YY
+  const dotDashTwoMatch = trimmed.match(/^(\d{1,2})[-\.](\d{1,2})[-\.](\d{2})$/);
+  if (dotDashTwoMatch) {
+    const d = dotDashTwoMatch[1].padStart(2, '0');
+    const m = dotDashTwoMatch[2].padStart(2, '0');
+    const yy = parseInt(dotDashTwoMatch[3], 10);
+    const fullYear = isDob 
+      ? (yy > currentYY ? 1900 + yy : 2000 + yy)
+      : (yy > 70 ? 1900 + yy : 2000 + yy);
+    return `${d}/${m}/${fullYear}`;
+  }
+
+  // 6. Airline ticket format: e.g. "25AUG", "25 AUG", "25-AUG", "25AUG26", "25AUG2026", "25-AUG-26", "25-AUG-2026"
+  const airTicketMatch = trimmed.match(/^(\d{1,2})[\s\-\.]*([A-Za-z]{3,9})(?:[\s\-\.]*(\d{2,4}))?$/);
+  if (airTicketMatch) {
+    const d = airTicketMatch[1].padStart(2, '0');
+    const monStr = airTicketMatch[2].toUpperCase();
+    const m = MONTH_MAP[monStr] || MONTH_MAP[monStr.substring(0, 3)] || '01';
+    let y = currentYear;
+    if (airTicketMatch[3]) {
+      const yStr = airTicketMatch[3];
+      if (yStr.length === 2) {
+        const yy = parseInt(yStr, 10);
+        y = isDob ? (yy > currentYY ? 1900 + yy : 2000 + yy) : (yy > 70 ? 1900 + yy : 2000 + yy);
+      } else {
+        y = parseInt(yStr, 10);
+      }
+    }
+    return `${d}/${m}/${y}`;
+  }
+
+  // 7. Month first format: "AUG 25", "AUG 25 2026", "Aug 25, 2026"
+  const monFirstMatch = trimmed.match(/^([A-Za-z]{3,9})[\s\-\.]+(\d{1,2})(?:[,\s\-\.]+(\d{2,4}))?$/);
+  if (monFirstMatch) {
+    const monStr = monFirstMatch[1].toUpperCase();
+    const m = MONTH_MAP[monStr] || MONTH_MAP[monStr.substring(0, 3)] || '01';
+    const d = monFirstMatch[2].padStart(2, '0');
+    let y = currentYear;
+    if (monFirstMatch[3]) {
+      const yStr = monFirstMatch[3];
+      if (yStr.length === 2) {
+        const yy = parseInt(yStr, 10);
+        y = isDob ? (yy > currentYY ? 1900 + yy : 2000 + yy) : (yy > 70 ? 1900 + yy : 2000 + yy);
+      } else {
+        y = parseInt(yStr, 10);
+      }
+    }
+    return `${d}/${m}/${y}`;
+  }
+
+  // 8. 6-digit MRZ YYMMDD e.g. "920815" or "350221"
+  if (/^\d{6}$/.test(trimmed)) {
+    const yy = parseInt(trimmed.substring(0, 2), 10);
+    const m = trimmed.substring(2, 4);
+    const d = trimmed.substring(4, 6);
+    const fullYear = isDob ? (yy > currentYY ? 1900 + yy : 2000 + yy) : 2000 + yy;
+    return `${d}/${m}/${fullYear}`;
+  }
+
+  // 9. Partial day/month only: "25/08" or "25-08" -> append currentYear
+  const dmMatch = trimmed.match(/^(\d{1,2})[-\/.](\d{1,2})$/);
+  if (dmMatch) {
+    const d = dmMatch[1].padStart(2, '0');
+    const m = dmMatch[2].padStart(2, '0');
+    return `${d}/${m}/${currentYear}`;
+  }
+
+  // Fallback: native Date parsing
+  const parsed = Date.parse(trimmed);
+  if (!isNaN(parsed)) {
+    const dt = new Date(parsed);
+    const d = String(dt.getDate()).padStart(2, '0');
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const y = dt.getFullYear();
+    return `${d}/${m}/${y}`;
+  }
+
+  return trimmed;
+}
 
 export interface ParsedMRZ {
   documentType: string;

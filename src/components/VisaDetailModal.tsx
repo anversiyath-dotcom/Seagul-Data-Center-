@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { VisaFollowup, VisaStatus, CompanyProfile, ActivityComment, VisaPaymentStatus } from '../types';
 import {
   X, User, Calendar, FileText, Globe, Clock, CheckCircle2,
   AlertCircle, Paperclip, Download, Eye, ExternalLink, Edit3, Trash2,
   Printer, ShieldCheck, Tag, RefreshCw, MessageSquare, ChevronRight,
   Send, Sparkles, Building2, CreditCard, Hash, Copy, Check, DollarSign,
-  Wallet, TrendingUp, Coins, Percent
+  Wallet, TrendingUp, Coins, Percent, Camera, Upload
 } from 'lucide-react';
 import { getVisaStatusBadgeClass, computeValidityText } from '../utils/helpers';
+import { normalizeToFullDate } from '../utils/imageUrlHelpers';
+import { getNationalityFlag } from '../data/nationalities';
 import { IcpTrackerModal } from './IcpTrackerModal';
+import { VisaRecordingReceiptPrint } from './VisaRecordingReceiptPrint';
 
 interface VisaDetailModalProps {
   visa: VisaFollowup | null;
@@ -42,16 +45,48 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
   onAddComment,
   companyProfile
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'documents' | 'comments' | 'summary'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'documents' | 'comments' | 'summary' | 'receipt'>('overview');
   const [isIcpModalOpen, setIsIcpModalOpen] = useState(false);
   const [newCommentText, setNewCommentText] = useState('');
   const [commentAuthor, setCommentAuthor] = useState('Staff');
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<{ title: string; src: string; isPdf?: boolean } | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   if (!visa) return null;
 
   const validity = computeValidityText(visa.expiryDate || visa.passportExpiry);
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file (JPEG, PNG, WebP).');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      onUpdateVisa({
+        ...visa,
+        photoAttachment: base64,
+        photoFileName: file.name
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemovePhoto = () => {
+    if (confirm('Remove applicant photograph from this visa file?')) {
+      onUpdateVisa({
+        ...visa,
+        photoAttachment: undefined,
+        photoFileName: undefined
+      });
+    }
+  };
 
   const handleCopy = (text: string, fieldName: string) => {
     navigator.clipboard.writeText(text);
@@ -72,6 +107,59 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleOpenPrintWindow = () => {
+    const receiptEl = document.getElementById('printable-visa-receipt');
+    if (!receiptEl) {
+      window.print();
+      return;
+    }
+
+    const printWin = window.open('', '_blank', 'width=950,height=1100');
+    if (printWin) {
+      const cleanHtml = receiptEl.outerHTML.replace(/\bhidden\b/g, '').replace(/\bprint:block\b/g, '');
+
+      printWin.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>SEAGULL GLOBAL - Visa Receipt ${visa.passportNo || ''}</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <style>
+              @media print {
+                @page { size: A4 portrait; margin: 6mm 8mm 6mm 8mm; }
+                html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; margin: 0 !important; padding: 0 !important; }
+                .no-print { display: none !important; }
+                #printable-visa-receipt { page-break-inside: avoid !important; break-inside: avoid !important; box-shadow: none !important; border: none !important; }
+              }
+              body { 
+                font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
+                background: #f1f5f9; 
+                padding: 10px; 
+                margin: 0; 
+                display: flex; 
+                justify-content: center; 
+              }
+            </style>
+          </head>
+          <body>
+            <div style="width: 100%; max-width: 880px;">
+              ${cleanHtml}
+            </div>
+            <script>
+              setTimeout(() => {
+                window.print();
+              }, 700);
+            </script>
+          </body>
+        </html>
+      `);
+      printWin.document.close();
+    } else {
+      window.print();
+    }
   };
 
   const purchasing = visa.purchasingPrice || 0;
@@ -194,13 +282,34 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
                 : 'bg-emerald-100 text-emerald-900 border border-emerald-200'
             }`}>
               <Clock className="w-3.5 h-3.5" />
-              <span>{validity.mainText}</span>
+              <span>{validity.mainText}{validity.fullDate && validity.fullDate !== 'N/A' ? ` (${validity.fullDate})` : ''}</span>
             </div>
 
             {/* Country Badge */}
             <div className="bg-blue-50 text-blue-900 border border-blue-200 px-2.5 py-1 rounded-lg text-xs font-bold flex items-center space-x-1.5">
               <Globe className="w-3.5 h-3.5 text-blue-600" />
               <span>{visa.destinationCountry || 'United Arab Emirates (UAE)'}</span>
+            </div>
+
+            {/* Branch Office Badge & Reassign */}
+            <div className="flex items-center space-x-1">
+              <select
+                value={visa.branch || (visa.currency === 'AED' || visa.destinationCountry?.includes('UAE') ? 'Dubai' : 'Negombo')}
+                onChange={(e) => {
+                  if (onUpdateVisa) {
+                    onUpdateVisa({ ...visa, branch: e.target.value as any });
+                  }
+                }}
+                className={`px-2.5 py-1 text-xs rounded-lg font-extrabold border cursor-pointer ${
+                  (visa.branch || (visa.currency === 'AED' ? 'Dubai' : 'Dubai')) === 'Dubai'
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : 'bg-blue-100 text-blue-800 border-blue-300'
+                }`}
+                title="Issuing Branch Office"
+              >
+                <option value="Dubai">🇦🇪 Dubai Branch</option>
+                <option value="Negombo">🇱🇰 Negombo Branch</option>
+              </select>
             </div>
           </div>
 
@@ -215,11 +324,12 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
             </button>
 
             <button
-              onClick={handlePrint}
-              className="inline-flex items-center space-x-1 px-3 py-1 text-xs font-bold rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 shadow-2xs transition-colors cursor-pointer"
+              onClick={() => setActiveTab('receipt')}
+              className="inline-flex items-center space-x-1 px-3 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition-colors cursor-pointer"
+              title="View and print customer recording receipt"
             >
-              <Printer className="w-3.5 h-3.5 text-slate-600" />
-              <span>Print Slip</span>
+              <Printer className="w-3.5 h-3.5" />
+              <span>Customer Receipt</span>
             </button>
           </div>
         </div>
@@ -271,16 +381,28 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTab('summary')}
+            onClick={() => setActiveTab('receipt')}
             className={`py-3 px-4 text-xs font-extrabold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${
-              activeTab === 'summary'
-                ? 'border-blue-600 text-blue-600'
+              activeTab === 'receipt' || activeTab === 'summary'
+                ? 'border-emerald-600 text-emerald-700 font-black'
                 : 'border-transparent text-slate-500 hover:text-slate-900'
             }`}
           >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Official Slip Print</span>
+            <Printer className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Customer Receipt</span>
+            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.2 rounded">
+              Print
+            </span>
           </button>
+        </div>
+
+        {/* HIDDEN PRINT CONTAINER (ALWAYS RENDERED FOR WINDOW.PRINT) */}
+        <div className="hidden print:block">
+          <VisaRecordingReceiptPrint 
+            visa={visa} 
+            companyProfile={companyProfile}
+            onUpdateVisa={onUpdateVisa} 
+          />
         </div>
 
         {/* Tab Body Content */}
@@ -312,7 +434,10 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
                     <span className="text-[10px] text-slate-400 font-bold uppercase block">Nationality / Citizenship</span>
-                    <span className="text-sm font-bold text-slate-900 mt-0.5 block">{visa.nationality || 'SRI LANKAN'}</span>
+                    <span className="text-sm font-bold text-slate-900 mt-0.5 flex items-center space-x-1.5">
+                      <span>{getNationalityFlag(visa.nationality)}</span>
+                      <span>{visa.nationality || 'SRI LANKAN'}</span>
+                    </span>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
@@ -331,12 +456,12 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
                     <span className="text-[10px] text-slate-400 font-bold uppercase block">Passport Expiry Date</span>
-                    <span className="text-sm font-bold text-slate-900 mt-0.5 block">{visa.passportExpiry}</span>
+                    <span className="text-sm font-bold text-slate-900 mt-0.5 block">{normalizeToFullDate(visa.passportExpiry) || 'N/A'}</span>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
                     <span className="text-[10px] text-slate-400 font-bold uppercase block">Date of Birth (DOB)</span>
-                    <span className="text-sm font-bold text-slate-900 mt-0.5 block">{visa.dob || 'N/A'}</span>
+                    <span className="text-sm font-bold text-slate-900 mt-0.5 block">{normalizeToFullDate(visa.dob) || 'N/A'}</span>
                   </div>
                 </div>
               </div>
@@ -359,7 +484,9 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Visa Category / Type</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">
+                      {visa.branch === 'Dubai' ? 'Corporate Service / Visa Category' : 'Visa Category / Type'}
+                    </span>
                     <span className="text-sm font-bold text-slate-900 mt-0.5 block">{visa.visaCategory}</span>
                   </div>
 
@@ -370,18 +497,18 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
                     <span className="text-[10px] text-slate-400 font-bold uppercase block">Submission / Issue Date</span>
-                    <span className="text-sm font-bold text-slate-900 mt-0.5 block">{visa.submissionDate || 'N/A'}</span>
+                    <span className="text-sm font-bold text-slate-900 mt-0.5 block">{normalizeToFullDate(visa.submissionDate) || 'N/A'}</span>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
                     <span className="text-[10px] text-slate-400 font-bold uppercase block">Country Entry Date</span>
-                    <span className="text-sm font-bold text-slate-900 mt-0.5 block">{visa.entryDate || 'N/A'}</span>
+                    <span className="text-sm font-bold text-slate-900 mt-0.5 block">{normalizeToFullDate(visa.entryDate) || 'N/A'}</span>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs ring-1 ring-amber-300">
                     <span className="text-[10px] text-amber-700 font-bold uppercase block">Visa Expiry Date (Strict)</span>
                     <span className="text-sm font-extrabold text-amber-900 mt-0.5 block">
-                      {visa.expiryDate || visa.passportExpiry}
+                      {normalizeToFullDate(visa.expiryDate || visa.passportExpiry)}
                     </span>
                     <span className="text-[10px] font-semibold text-amber-600 block mt-0.5">{validity.mainText}</span>
                   </div>
@@ -581,7 +708,83 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
           {/* DOCUMENTS & ATTACHMENTS TAB */}
           {activeTab === 'documents' && (
             <div className="space-y-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoUpload}
+                className="hidden"
+              />
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+                {/* Applicant Photograph (Passport Size for Visa Receipt) */}
+                <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-3 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-3">
+                      <div className="flex items-center space-x-2">
+                        <Camera className="w-4 h-4 text-purple-600" />
+                        <span className="font-extrabold text-xs text-slate-800 uppercase">Applicant Photo (Receipt)</span>
+                      </div>
+                      {visa.photoAttachment && (
+                        <span className="bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded">
+                          Uploaded
+                        </span>
+                      )}
+                    </div>
+
+                    {visa.photoAttachment ? (
+                      <div className="space-y-3">
+                        <div
+                          onClick={() => setPreviewDoc({ title: `Applicant Photo - ${visa.lastName} ${visa.firstName}`, src: visa.photoAttachment! })}
+                          className="h-56 bg-slate-100 rounded-lg overflow-hidden border border-slate-300 relative group cursor-pointer flex items-center justify-center"
+                        >
+                          <img
+                            src={visa.photoAttachment}
+                            alt="Applicant Photograph"
+                            className="w-full h-full object-contain"
+                          />
+                          <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2 text-white text-xs font-bold">
+                            <Eye className="w-4 h-4" />
+                            <span>Click to Expand</span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div 
+                        onClick={() => photoInputRef.current?.click()}
+                        className="h-56 bg-white rounded-lg border-2 border-dashed border-purple-200 hover:border-purple-400 flex flex-col items-center justify-center p-4 text-center text-slate-400 space-y-2 cursor-pointer transition-colors group"
+                      >
+                        <div className="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center text-purple-600 group-hover:bg-purple-100 transition-colors">
+                          <Camera className="w-6 h-6" />
+                        </div>
+                        <p className="text-xs font-bold text-slate-700">No Photo Uploaded</p>
+                        <p className="text-[11px] text-purple-700 font-semibold">Click here to upload applicant photo for official visa recording receipt</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center space-x-2 pt-3 border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => photoInputRef.current?.click()}
+                      className="flex-1 inline-flex items-center justify-center space-x-1 px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{visa.photoAttachment ? 'Change Photo' : 'Upload Photo'}</span>
+                    </button>
+                    {visa.photoAttachment && (
+                      <button
+                        type="button"
+                        onClick={handleRemovePhoto}
+                        className="p-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-bold transition-colors cursor-pointer"
+                        title="Remove photo"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
                 
                 {/* Passport Attachment */}
                 <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-3 flex flex-col justify-between">
@@ -757,117 +960,43 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
             </div>
           )}
 
-          {/* OFFICIAL SUMMARY SLIP TAB (PRINTABLE) */}
-          {activeTab === 'summary' && (
+          {/* CUSTOMER RECORDING RECEIPT TAB (OFFICIAL LETTERHEAD PRINT) */}
+          {(activeTab === 'receipt' || activeTab === 'summary') && (
             <div className="space-y-4">
-              <div className="flex justify-end">
-                <button
-                  onClick={handlePrint}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center space-x-1.5 cursor-pointer"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print Official Slip</span>
-                </button>
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-950 p-3.5 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs font-medium">
+                <div className="flex items-center space-x-2">
+                  <Printer className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <span>
+                    <strong>Official Customer Recording Receipt:</strong> Formatted on <strong>Seagull Global</strong> letterhead with verified QR code, applicant data, ICP tracking, and customer billing record.
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={handlePrint}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-lg text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print Receipt</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenPrintWindow}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-lg text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Open Print Tab</span>
+                  </button>
+                </div>
               </div>
 
-              {/* Printable Handover Slip */}
-              <div id="printable-visa-slip" className="bg-white p-6 rounded-xl border border-slate-300 shadow-sm max-w-2xl mx-auto space-y-4 font-sans text-slate-800">
-                {/* Header */}
-                <div className="flex justify-between items-start border-b-2 border-slate-900 pb-3">
-                  <div>
-                    <h1 className="text-lg font-black text-blue-900 tracking-tight">
-                      {companyProfile?.companyName || 'SEAGULL GLOBAL'}
-                    </h1>
-                    <p className="text-[10px] text-slate-500 font-semibold uppercase">
-                      {companyProfile?.tagline || 'Travel & Visa Workflow Management'}
-                    </p>
-                    <p className="text-[10px] text-slate-400">{companyProfile?.negomboAddress}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-extrabold text-slate-900 bg-slate-100 px-2 py-1 rounded block">
-                      VISA SUMMARY SLIP
-                    </span>
-                    <span className="text-[10px] font-mono text-slate-500 mt-1 block">
-                      Ref: {visa.id}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Details Table */}
-                <table className="w-full text-xs border border-slate-300">
-                  <tbody>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <td className="p-2 font-bold text-slate-600 w-1/3">Passenger Full Name:</td>
-                      <td className="p-2 font-extrabold text-slate-900">{`${visa.lastName || ''} ${visa.firstName || ''}`.trim()}</td>
-                    </tr>
-                    <tr className="border-b border-slate-200">
-                      <td className="p-2 font-bold text-slate-600">Passport Number:</td>
-                      <td className="p-2 font-mono font-bold text-blue-900">{visa.passportNo}</td>
-                    </tr>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <td className="p-2 font-bold text-slate-600">Passport Expiry:</td>
-                      <td className="p-2 font-semibold text-slate-800">{visa.passportExpiry}</td>
-                    </tr>
-                    <tr className="border-b border-slate-200">
-                      <td className="p-2 font-bold text-slate-600">Processing Country:</td>
-                      <td className="p-2 font-bold text-slate-900">{visa.destinationCountry || 'United Arab Emirates (UAE)'}</td>
-                    </tr>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <td className="p-2 font-bold text-slate-600">Visa Duration / Category:</td>
-                      <td className="p-2 font-bold text-slate-900">{visa.visaCategory}</td>
-                    </tr>
-                    <tr className="border-b border-slate-200">
-                      <td className="p-2 font-bold text-slate-600">Application Status:</td>
-                      <td className="p-2 font-bold text-emerald-700">{visa.status}</td>
-                    </tr>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <td className="p-2 font-bold text-slate-600">Entry Permit / ICP File No:</td>
-                      <td className="p-2 font-mono font-bold text-slate-800">{visa.icpFileNo || 'N/A'}</td>
-                    </tr>
-                    <tr className="border-b border-slate-200">
-                      <td className="p-2 font-bold text-slate-600">UAE UID Number:</td>
-                      <td className="p-2 font-mono font-bold text-slate-800">{visa.unifiedNumber || 'N/A'}</td>
-                    </tr>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <td className="p-2 font-bold text-slate-600">Date of Entry:</td>
-                      <td className="p-2 font-semibold text-slate-800">{visa.entryDate || 'N/A'}</td>
-                    </tr>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <td className="p-2 font-bold text-slate-600">Visa Expiry Date:</td>
-                      <td className="p-2 font-extrabold text-amber-900">{visa.expiryDate || visa.passportExpiry}</td>
-                    </tr>
-                    <tr className="border-b border-slate-200">
-                      <td className="p-2 font-bold text-slate-600">Agent / Customer:</td>
-                      <td className="p-2 font-semibold text-slate-800">{visa.customer || 'Direct Customer'}</td>
-                    </tr>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <td className="p-2 font-bold text-slate-600">Visa Supplier / Provider:</td>
-                      <td className="p-2 font-semibold text-slate-800">{visa.supplier || 'Musafir B2B'}</td>
-                    </tr>
-                    <tr className="border-b border-slate-200">
-                      <td className="p-2 font-bold text-slate-600">Invoiced / Selling Price:</td>
-                      <td className="p-2 font-mono font-bold text-blue-900">
-                        {visa.sellingPrice !== undefined ? `${curr} ${visa.sellingPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : 'N/A'}
-                      </td>
-                    </tr>
-                    <tr className="bg-slate-50">
-                      <td className="p-2 font-bold text-slate-600">Payment Status:</td>
-                      <td className="p-2 font-extrabold text-emerald-800">{visa.paymentStatus || 'Pending'}</td>
-                    </tr>
-                  </tbody>
-                </table>
-
-                {/* Footer notes & signature */}
-                <div className="pt-4 flex justify-between items-end text-[10px] text-slate-500 border-t border-slate-200">
-                  <div>
-                    <p>Printed on: {new Date().toLocaleDateString('en-GB')} {new Date().toLocaleTimeString('en-GB')}</p>
-                    <p>Verification Portal: https://smartservices.icp.gov.ae</p>
-                  </div>
-                  <div className="text-center">
-                    <div className="w-32 border-b border-slate-400 mb-1"></div>
-                    <p className="font-bold text-slate-700">Authorized Signature</p>
-                  </div>
-                </div>
+              {/* Receipt Visual Preview on Screen */}
+              <div className="bg-slate-200 p-3 sm:p-6 rounded-2xl overflow-x-auto shadow-inner flex justify-center">
+                <VisaRecordingReceiptPrint 
+                  visa={visa} 
+                  companyProfile={companyProfile}
+                  onUpdateVisa={onUpdateVisa} 
+                />
               </div>
             </div>
           )}
@@ -877,7 +1006,7 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
         {/* Modal Bottom Footer */}
         <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex items-center justify-between shrink-0">
           <div className="text-[11px] text-slate-500">
-            Passport: <strong className="text-slate-800">{visa.passportNo}</strong> • Validity: <strong className="text-blue-700">{validity.mainText}</strong>
+            Passport: <strong className="text-slate-800">{visa.passportNo}</strong> • Validity: <strong className="text-blue-700">{validity.mainText}{validity.fullDate && validity.fullDate !== 'N/A' ? ` (${validity.fullDate})` : ''}</strong>
           </div>
 
           <div className="flex items-center space-x-2">

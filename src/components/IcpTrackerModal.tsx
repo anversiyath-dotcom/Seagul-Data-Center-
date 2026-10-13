@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { VisaFollowup, VisaStatus } from '../types';
 import { ExternalLink, Copy, Check, Sparkles, RefreshCw, ShieldCheck, AlertCircle, FileText, X, Globe, Calendar, User, Clock } from 'lucide-react';
+import { getNationalityFlag } from '../data/nationalities';
 
 interface IcpTrackerModalProps {
   visa: VisaFollowup;
@@ -215,7 +216,10 @@ export const IcpTrackerModal: React.FC<IcpTrackerModalProps> = ({
                   <div className="flex items-center justify-between bg-slate-50 p-1.5 rounded">
                     <div>
                       <span className="text-[9px] text-slate-400 font-bold block">3. Nationality</span>
-                      <span className="font-bold text-slate-800 uppercase">{visa.nationality || 'SRI LANKAN'}</span>
+                      <span className="font-bold text-slate-800 uppercase flex items-center space-x-1">
+                        <span>{getNationalityFlag(visa.nationality)}</span>
+                        <span>{visa.nationality || 'SRI LANKAN'}</span>
+                      </span>
                     </div>
                     <button
                       type="button"
@@ -273,7 +277,10 @@ export const IcpTrackerModal: React.FC<IcpTrackerModalProps> = ({
                   <div className="flex items-center justify-between bg-slate-50 p-1.5 rounded">
                     <div>
                       <span className="text-[9px] text-slate-400 font-bold block">3. Nationality</span>
-                      <span className="font-bold text-slate-800 uppercase">{visa.nationality || 'SRI LANKAN'}</span>
+                      <span className="font-bold text-slate-800 uppercase flex items-center space-x-1">
+                        <span>{getNationalityFlag(visa.nationality)}</span>
+                        <span>{visa.nationality || 'SRI LANKAN'}</span>
+                      </span>
                     </div>
                     <button
                       type="button"

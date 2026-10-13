@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { TicketFollowup, TicketStatus } from '../types';
+import { TicketFollowup, TicketStatus, BranchFilter, BranchOffice, BRANCH_CONFIG } from '../types';
 import { 
   MessageSquare, ExternalLink, Filter, Search, Plus, Download, Edit2, Edit3, 
   Trash2, Building2, Layers, Plane, Calendar, MapPin, Tag, ArrowRight, User, Paperclip, Users,
   DollarSign, TrendingUp, TrendingDown, Calculator, CalendarRange, X
 } from 'lucide-react';
 import { getTicketStatusBadgeClass } from '../utils/helpers';
+import { normalizeToFullDate } from '../utils/imageUrlHelpers';
 import { isDateInRange, getDateRangePreset, DatePreset } from '../utils/dateUtils';
 import { isPaidPaymentStatus, isPartialPaymentStatus, isUnpaidPaymentStatus } from '../utils/paymentUtils';
 
@@ -14,6 +15,8 @@ interface TicketFollowupTableProps {
   searchTerm: string;
   selectedStatusFilter: string;
   setSelectedStatusFilter: (status: string) => void;
+  selectedBranchFilter?: BranchFilter;
+  setSelectedBranchFilter?: (branch: BranchFilter) => void;
   onOpenDetails: (ticket: TicketFollowup) => void;
   onOpenComments: (ticket: TicketFollowup) => void;
   onAddNewTicket: () => void;
@@ -29,6 +32,8 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
   searchTerm,
   selectedStatusFilter,
   setSelectedStatusFilter,
+  selectedBranchFilter: controlledBranchFilter,
+  setSelectedBranchFilter: setControlledBranchFilter,
   onOpenDetails,
   onOpenComments,
   onAddNewTicket,
@@ -38,6 +43,18 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
   onUpdatePaymentStatus,
   commentsCountMap
 }) => {
+  const [internalBranchFilter, setInternalBranchFilter] = useState<BranchFilter>('All');
+  const selectedBranchFilter = controlledBranchFilter !== undefined ? controlledBranchFilter : internalBranchFilter;
+  const setSelectedBranchFilter = setControlledBranchFilter || setInternalBranchFilter;
+
+  const dubaiCount = React.useMemo(() => {
+    return (tickets || []).filter(t => t.branch === 'Dubai').length;
+  }, [tickets]);
+
+  const negomboCount = React.useMemo(() => {
+    return (tickets || []).filter(t => t.branch !== 'Dubai').length;
+  }, [tickets]);
+
   const [selectedAgencyFilter, setSelectedAgencyFilter] = useState<string>('ALL');
   const [selectedAirlineFilter, setSelectedAirlineFilter] = useState<string>('ALL');
   const [entityTypeFilter, setEntityTypeFilter] = useState<'ALL' | 'Agency' | 'Customer'>('ALL');
@@ -65,28 +82,18 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
   // Helper to calculate days remaining until departure
   const getDaysLeftForFlyDate = React.useCallback((dateStr?: string): number | null => {
     if (!dateStr || dateStr === 'N/A' || dateStr === 'Pending') return null;
-    const clean = dateStr.trim();
-    let depDate: Date | null = null;
-    if (clean.includes('/')) {
-      const parts = clean.split('/');
-      if (parts.length === 3) {
-        depDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
-      }
-    } else if (clean.includes('-')) {
-      const parts = clean.split('-');
-      if (parts.length === 3) {
-        if (parts[0].length === 4) {
-          depDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-        } else {
-          depDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
-        }
+    const normalized = normalizeToFullDate(dateStr);
+    const parts = normalized.split('/');
+    if (parts.length === 3) {
+      const depDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+      if (!isNaN(depDate.getTime())) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const diffTime = depDate.getTime() - today.getTime();
+        return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       }
     }
-    if (!depDate || isNaN(depDate.getTime())) return null;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diffTime = depDate.getTime() - today.getTime();
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return null;
   }, []);
 
   const statusOptions = [
@@ -169,7 +176,11 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
       return isDateInRange(targetDateStr, startDate, endDate);
     })();
 
-    return matchesSearch && matchesStatus && matchesAgency && matchesAirline && matchesEntityType && matchesDate;
+    const itemBranch = t.branch === 'Dubai' ? 'Dubai' : 'Negombo';
+    const matchesBranch =
+      selectedBranchFilter === 'All' || itemBranch === selectedBranchFilter;
+
+    return matchesSearch && matchesStatus && matchesAgency && matchesAirline && matchesEntityType && matchesDate && matchesBranch;
   });
 
   // Grouping logic when isGroupedByAgency is true
@@ -349,7 +360,7 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
             <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             <div>
               <span className="text-[9px] text-slate-400 block font-sans uppercase tracking-tight font-bold">FLY DATE</span>
-              <span className="text-xs font-bold text-slate-900">{item.flyDate || (item.itinerary && item.itinerary[0]?.dateTime?.split(' ')[0]) || 'Pending'}</span>
+              <span className="text-xs font-bold text-slate-900">{normalizeToFullDate(item.flyDate || (item.itinerary && item.itinerary[0]?.dateTime?.split(' ')[0])) || 'Pending'}</span>
             </div>
           </div>
           {(() => {
@@ -376,7 +387,7 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
           {item.returnDate && item.returnDate !== 'N/A' ? (
             <div className="text-[10px] text-slate-600 pl-5">
               <span className="text-slate-400 text-[9px] font-sans block">RETURN:</span>
-              <span className="font-semibold text-slate-800">{item.returnDate}</span>
+              <span className="font-semibold text-slate-800">{normalizeToFullDate(item.returnDate)}</span>
             </div>
           ) : (
             <div className="pl-5 text-[9px] text-slate-400 italic">
@@ -391,6 +402,16 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
             {item.pnr || item.newBooking || 'N/A'}
           </div>
           <div className="flex flex-col gap-1 items-start">
+            {(() => {
+              const isDubai = item.branch === 'Dubai' || (!item.branch && (item.currency === 'AED' || item.departureLocation?.includes('DXB') || item.arrivalLocation?.includes('DXB')));
+              return (
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 border ${
+                  isDubai ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-blue-50 text-blue-800 border-blue-300'
+                }`}>
+                  <span>{isDubai ? '🇦🇪 Dubai' : '🇱🇰 Negombo'}</span>
+                </span>
+              );
+            })()}
             <span className="bg-[#FEF0D9] text-[#D97706] border border-[#FDE68A] text-[9px] px-2 py-0.5 rounded-full font-bold inline-block">
               {item.reissueCategory || 'Standard Reissue'}
             </span>
@@ -589,19 +610,34 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
           </div>
 
           <div className="flex items-center space-x-2 flex-wrap gap-1">
+            {/* Branch Office Dropdown Filter */}
+            <div className="flex items-center space-x-1.5 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700">
+              <Building2 className="w-3.5 h-3.5 text-emerald-400" />
+              <select
+                value={selectedBranchFilter}
+                onChange={(e) => setSelectedBranchFilter(e.target.value as BranchFilter)}
+                className="bg-transparent text-xs sm:text-sm font-bold text-slate-200 focus:outline-none cursor-pointer"
+                title="Filter by Issuing Branch"
+              >
+                <option value="All" className="bg-slate-900 text-white">🏢 All Branches ({tickets.length})</option>
+                <option value="Dubai" className="bg-slate-900 text-white">🇦🇪 Dubai Branch ({dubaiCount})</option>
+                <option value="Negombo" className="bg-slate-900 text-white">🇱🇰 Negombo Branch ({negomboCount})</option>
+              </select>
+            </div>
+
             {/* Airline Dropdown Filter */}
             {airlineList.length > 0 && (
-              <div className="flex items-center space-x-1 bg-slate-800 px-2 py-1 rounded-lg border border-slate-700">
-                <Plane className="w-3 h-3 text-blue-400" />
+              <div className="flex items-center space-x-1.5 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700">
+                <Plane className="w-3.5 h-3.5 text-blue-400" />
                 <select
                   value={selectedAirlineFilter}
                   onChange={(e) => setSelectedAirlineFilter(e.target.value)}
-                  className="bg-transparent text-[11px] font-bold text-slate-200 focus:outline-none cursor-pointer"
+                  className="bg-transparent text-xs sm:text-sm font-bold text-slate-200 focus:outline-none cursor-pointer"
                 >
-                  <option value="ALL" className="bg-slate-900 text-white">All Airlines</option>
+                  <option value="ALL" className="bg-slate-900 text-white">✈️ All Airlines</option>
                   {airlineList.map((al) => (
                     <option key={al} value={al} className="bg-slate-900 text-white">
-                      {al}
+                      ✈️ {al}
                     </option>
                   ))}
                 </select>
@@ -609,11 +645,11 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
             )}
 
             {/* Entity Type Selector */}
-            <div className="flex items-center space-x-1 bg-slate-800 p-1 rounded-lg border border-slate-700">
+            <div className="flex items-center space-x-1 bg-slate-800 p-1 rounded-xl border border-slate-700">
               <button
                 type="button"
                 onClick={() => setEntityTypeFilter('ALL')}
-                className={`px-2.5 py-1 text-[11px] font-bold rounded cursor-pointer transition-all ${
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition-all ${
                   entityTypeFilter === 'ALL' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -622,7 +658,7 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
               <button
                 type="button"
                 onClick={() => setEntityTypeFilter('Agency')}
-                className={`px-2.5 py-1 text-[11px] font-bold rounded cursor-pointer transition-all ${
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition-all ${
                   entityTypeFilter === 'Agency' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -631,7 +667,7 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
               <button
                 type="button"
                 onClick={() => setEntityTypeFilter('Customer')}
-                className={`px-2.5 py-1 text-[11px] font-bold rounded cursor-pointer transition-all ${
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition-all ${
                   entityTypeFilter === 'Customer' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -875,16 +911,19 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
         
         {/* Status Filter Badges */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
-          <Filter className="w-4 h-4 text-slate-400 shrink-0 mr-1" />
+        <div className="flex items-center space-x-2 overflow-x-auto pb-1 md:pb-0 scrollbar-thin">
+          <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-500 shrink-0 mr-1">
+            <Filter className="w-4 h-4 text-slate-400" />
+            <span>Status:</span>
+          </div>
           {statusOptions.map((st) => (
             <button
               key={st}
               onClick={() => setSelectedStatusFilter(st)}
-              className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-all cursor-pointer ${
                 selectedStatusFilter === st
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-500/20'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
               }`}
             >
               {st}
@@ -933,8 +972,30 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
             <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
               {filteredTickets.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
-                    No tickets found matching current filter criteria.
+                  <td colSpan={7} className="py-12 text-center text-slate-500 font-medium">
+                    <div className="max-w-md mx-auto space-y-2">
+                      <span className="text-3xl block">
+                        {selectedBranchFilter === 'Dubai' ? '🇦🇪' : '✈️'}
+                      </span>
+                      <p className="font-bold text-slate-700">
+                        {selectedBranchFilter === 'Dubai' ? 'Dubai Branch has no air tickets yet' : 'No tickets found matching current filter criteria.'}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {selectedBranchFilter === 'Dubai'
+                          ? 'All existing data is kept under Sri Lanka Head Office. Ready to enter Dubai branch air tickets.'
+                          : 'Try selecting different search or status filters.'}
+                      </p>
+                      {selectedBranchFilter === 'Dubai' && (
+                        <button
+                          type="button"
+                          onClick={onAddNewTicket}
+                          className="mt-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg inline-flex items-center space-x-1 shadow-xs cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Enter First Dubai Ticket</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ) : isGroupedByAgency ? (

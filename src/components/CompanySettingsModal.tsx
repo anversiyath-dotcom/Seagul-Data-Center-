@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CompanyProfile, DEFAULT_COMPANY_PROFILE } from '../types';
-import { Building2, X, Save, Phone, Mail, MapPin, Trash2, CheckCircle2, RotateCcw, ShieldAlert } from 'lucide-react';
+import { Building2, X, Save, Phone, Mail, MapPin, Trash2, CheckCircle2, RotateCcw, ShieldAlert, Image as ImageIcon } from 'lucide-react';
+import { SeagullLogo } from './SeagullLogo';
 
 interface CompanySettingsModalProps {
   isOpen: boolean;
@@ -9,6 +10,7 @@ interface CompanySettingsModalProps {
   onSaveProfile: (newProfile: CompanyProfile) => void;
   onClearAllData: () => void;
   onResetToDemoData: () => void;
+  onReassignAllToSriLanka?: () => void;
 }
 
 export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
@@ -17,7 +19,8 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
   profile,
   onSaveProfile,
   onClearAllData,
-  onResetToDemoData
+  onResetToDemoData,
+  onReassignAllToSriLanka
 }) => {
   const [formData, setFormData] = useState<CompanyProfile>(profile);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -66,6 +69,22 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
               <span className="text-sm font-bold">Company profile saved successfully! Updates applied to letterheads.</span>
             </div>
           )}
+
+          {/* Official Brand Logo */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 mb-3">
+              <ImageIcon className="w-4 h-4 text-blue-600" /> Official Agency Logo
+            </h3>
+            <div className="flex flex-col sm:flex-row items-center gap-4 bg-white p-3 rounded-lg border border-slate-200">
+              <div className="p-2 border border-slate-100 rounded-xl bg-slate-50/50">
+                <SeagullLogo size="lg" variant="stacked" allowUpload={true} />
+              </div>
+              <div className="text-xs text-slate-600 space-y-1">
+                <p className="font-bold text-slate-800">Upload your original logo file (PNG, JPG, SVG)</p>
+                <p>Click "Upload Original Logo File" to select your exact file (e.g. <code className="bg-slate-100 px-1 py-0.5 rounded text-blue-700 font-mono">logos_page-0002.jpg</code>). The untouched file will instantly display across the Staff Portal, Header, and Letterhead prints without any AI modifications.</p>
+              </div>
+            </div>
+          </div>
 
           {/* Company Main Info */}
           <div className="space-y-4">
@@ -183,6 +202,16 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
               Clear all current entries if you want to start entering your company's actual client data from scratch.
             </p>
             <div className="flex flex-wrap items-center gap-2 pt-1">
+              {onReassignAllToSriLanka && (
+                <button
+                  type="button"
+                  onClick={onReassignAllToSriLanka}
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Assign All Records to Sri Lanka Branch (Reset Dubai to 0)
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onClearAllData}

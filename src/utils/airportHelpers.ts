@@ -1,3 +1,5 @@
+import { normalizeToFullDate } from './imageUrlHelpers';
+
 export interface AirportInfo {
   code: string;
   name: string;
@@ -86,8 +88,10 @@ export const resolveAirport = (
 export const formatFlightDate = (dateStr: string | undefined): string => {
   if (!dateStr || dateStr === 'N/A') return '03 SEP 2026';
   
+  const normalized = normalizeToFullDate(dateStr) || dateStr;
+
   // Try parsing DD/MM/YYYY or YYYY-MM-DD
-  const dmyMatch = dateStr.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  const dmyMatch = normalized.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
   if (dmyMatch) {
     const day = parseInt(dmyMatch[1], 10);
     const month = parseInt(dmyMatch[2], 10) - 1;
@@ -100,7 +104,7 @@ export const formatFlightDate = (dateStr: string | undefined): string => {
     }
   }
 
-  const isoDate = new Date(dateStr);
+  const isoDate = new Date(normalized);
   if (!isNaN(isoDate.getTime())) {
     const dayStr = String(isoDate.getDate()).padStart(2, '0');
     const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];

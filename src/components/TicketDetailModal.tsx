@@ -7,6 +7,7 @@ import {
   TrendingUp, TrendingDown, Calculator
 } from 'lucide-react';
 import { formatLKR } from '../utils/helpers';
+import { normalizeToFullDate } from '../utils/imageUrlHelpers';
 import { TicketLetterheadPrint } from './TicketLetterheadPrint';
 import { isPaidPaymentStatus, isPartialPaymentStatus, isUnpaidPaymentStatus } from '../utils/paymentUtils';
 
@@ -151,8 +152,8 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
       arrivalTime: editArrivalTime,
       returnDepartureTime: editReturnDepartureTime,
       returnArrivalTime: editReturnArrivalTime,
-      flyDate: editFlyDate,
-      returnDate: editReturnDate,
+      flyDate: normalizeToFullDate(editFlyDate),
+      returnDate: editReturnDate && editReturnDate !== 'N/A' ? normalizeToFullDate(editReturnDate) : 'N/A',
       departureLocation: editDeparture,
       arrivalLocation: editArrival,
       baggageAllowance: editBaggage,
@@ -161,7 +162,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
           id: ticket.itinerary[0]?.id || `itin-${Date.now()}`,
           route: `${editDeparture} → ${editArrival}`,
           flightNo: editFlightNo,
-          dateTime: `${editFlyDate} ${editDepartureTime || '10:00'}`
+          dateTime: `${normalizeToFullDate(editFlyDate)} ${editDepartureTime || '10:00'}`
         }
       ]
     };
@@ -196,6 +197,23 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
             <span className="text-xs font-semibold px-2 py-0.5 rounded bg-blue-600/30 text-blue-300 border border-blue-500/30 font-mono">
               PNR: {ticket.pnr}
             </span>
+
+            {/* Branch Office Selector Badge */}
+            <select
+              value={ticket.branch || (ticket.currency === 'AED' || ticket.departureLocation?.includes('DXB') || ticket.arrivalLocation?.includes('DXB') ? 'Dubai' : 'Negombo')}
+              onChange={(e) => {
+                onUpdateTicket({ ...ticket, branch: e.target.value as any });
+              }}
+              className={`px-2 py-0.5 text-xs rounded-lg font-bold border cursor-pointer ${
+                (ticket.branch || 'Dubai') === 'Dubai'
+                  ? 'bg-emerald-950 text-emerald-300 border-emerald-500/50'
+                  : 'bg-blue-950 text-blue-300 border-blue-500/50'
+              }`}
+              title="Issuing Branch Office"
+            >
+              <option value="Dubai" className="bg-slate-900 text-white">🇦🇪 Dubai Branch</option>
+              <option value="Negombo" className="bg-slate-900 text-white">🇱🇰 Negombo Branch</option>
+            </select>
             
             {/* Tab Switcher */}
             <div className="flex items-center bg-slate-800/80 p-0.5 rounded-lg border border-slate-700">
@@ -393,7 +411,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                 <span>FLY DATE</span>
               </div>
               <div className="text-sm font-extrabold text-slate-900 mt-2 font-mono">
-                {ticket.flyDate || ticket.requestDate}
+                {normalizeToFullDate(ticket.flyDate || ticket.requestDate)}
               </div>
             </div>
 
@@ -537,7 +555,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                               <span>Sector 1 • Outbound Flight</span>
                             </div>
                             <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
-                              {ticket.flyDate || ticket.requestDate}
+                              {normalizeToFullDate(ticket.flyDate || ticket.requestDate)}
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
@@ -570,7 +588,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                               <span>Sector 2 • Return Flight</span>
                             </div>
                             <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded">
-                              {ticket.returnDate || '10/09/2026'}
+                              {normalizeToFullDate(ticket.returnDate || '10/09/2026')}
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
@@ -603,7 +621,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                             <span className="text-[10px] text-blue-800 font-bold uppercase block">DEPARTURE (ORIGIN)</span>
                             <span className="text-xs font-black text-slate-900 block">{ticket.departureLocation || 'Colombo (CMB)'}</span>
                             <span className="text-[11px] font-mono text-emerald-700 font-bold mt-1 block">
-                              Fly: {ticket.flyDate || ticket.requestDate}
+                              Fly: {normalizeToFullDate(ticket.flyDate || ticket.requestDate)}
                             </span>
                           </div>
 

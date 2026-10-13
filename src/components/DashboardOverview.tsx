@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
-import { TicketFollowup, VisaFollowup, VisaStatus, VISA_CATEGORIES } from '../types';
+import { TicketFollowup, VisaFollowup, VisaStatus, VISA_CATEGORIES, ExpenseItem, BranchFilter } from '../types';
 import { 
   TrendingUp, Layers, CalendarX, UserCheck, AlertTriangle, ArrowUpRight, CheckCircle2, 
   Clock, Building2, AlertCircle, Plane, Calendar, Copy, Check, ShieldAlert, Eye, 
   ExternalLink, Sparkles, User, Tag, Calculator, DollarSign, Briefcase
 } from 'lucide-react';
 import { VisaExpirationsChart } from './VisaExpirationsChart';
+import { normalizeToFullDate } from '../utils/imageUrlHelpers';
+import { getNationalityFlag } from '../data/nationalities';
 
 interface DashboardOverviewProps {
   tickets: TicketFollowup[];
   visas: VisaFollowup[];
+  expenses?: ExpenseItem[];
+  selectedBranch?: BranchFilter;
   onSelectVisaStatusFilter: (status: VisaStatus) => void;
   onSelectTicketStatusFilter: (status: string) => void;
   onSelectVisaCategoryFilter?: (category: string) => void;
@@ -21,6 +25,8 @@ interface DashboardOverviewProps {
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   tickets,
   visas,
+  expenses = [],
+  selectedBranch = 'All',
   onSelectVisaStatusFilter,
   onSelectTicketStatusFilter,
   onSelectVisaCategoryFilter,
@@ -126,24 +132,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         }
 
         let expDate: Date | null = null;
-        if (v.expiryDate.includes('/')) {
-          const parts = v.expiryDate.split('/');
-          if (parts.length === 3) {
-            expDate = new Date(
-              parseInt(parts[2], 10),
-              parseInt(parts[1], 10) - 1,
-              parseInt(parts[0], 10)
-            );
-          }
-        } else if (v.expiryDate.includes('-')) {
-          const parts = v.expiryDate.split('-');
-          if (parts.length === 3) {
-            expDate = new Date(
-              parseInt(parts[0], 10),
-              parseInt(parts[1], 10) - 1,
-              parseInt(parts[2], 10)
-            );
-          }
+        const normalizedExp = normalizeToFullDate(v.expiryDate);
+        const parts = normalizedExp.split('/');
+        if (parts.length === 3) {
+          expDate = new Date(
+            parseInt(parts[2], 10),
+            parseInt(parts[1], 10) - 1,
+            parseInt(parts[0], 10)
+          );
         }
 
         if (!expDate || isNaN(expDate.getTime())) return null;
@@ -182,7 +178,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const expiringDateGroups = React.useMemo(() => {
     const map: Record<string, { dateStr: string; daysLeft: number; count: number; visas: VisaFollowup[] }> = {};
     expiring15DaysVisas.forEach(({ visa, daysLeft }) => {
-      const dateStr = visa.expiryDate || visa.passportExpiry || 'N/A';
+      const rawDate = visa.expiryDate || visa.passportExpiry || 'N/A';
+      const dateStr = normalizeToFullDate(rawDate);
       if (!map[dateStr]) {
         map[dateStr] = { dateStr, daysLeft, count: 0, visas: [] };
       }
@@ -198,7 +195,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       return expiring15DaysVisas;
     }
     return expiring15DaysVisas.filter(
-      (item) => (item.visa.expiryDate || item.visa.passportExpiry) === selectedExpiringDateFilter
+      (item) => normalizeToFullDate(item.visa.expiryDate || item.visa.passportExpiry) === selectedExpiringDateFilter
     );
   }, [expiring15DaysVisas, selectedExpiringDateFilter]);
 
@@ -271,32 +268,48 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     { label: 'Not Confirmed', count: getVisaStatusCount('Not Confirmed'), colorClass: 'bg-[#95A5A6]' }
   ];
 
-  // Category counts based strictly on true data
+  // Category & Services counts dynamically sorted
   const categoryItems = React.useMemo(() => {
-    return VISA_CATEGORIES.map((cat) => {
-      const count = (visas || []).filter((v) => {
-        const catName = (v.visaCategory || '').toLowerCase();
-        return catName === cat.toLowerCase() || catName.includes(cat.toLowerCase());
-      }).length;
-      return { label: cat, count };
+    const map = new Map<string, number>();
+
+    (visas || []).forEach((v) => {
+      const cat = (v.visaCategory || '').trim();
+      if (cat) {
+        map.set(cat, (map.get(cat) || 0) + 1);
+      }
     });
+
+    VISA_CATEGORIES.forEach((cat) => {
+      if (!map.has(cat)) {
+        map.set(cat, 0);
+      }
+    });
+
+    return Array.from(map.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.label.localeCompare(b.label);
+      });
   }, [visas]);
 
   // Pending ticket reissues
   const pendingTickets = tickets.filter(t => t.status === 'In-Progress' || t.status === 'Declined');
 
-  // Overall Financial snapshot
+  // Overall Financial snapshot (including Operating Expenses deduction)
+  const branchCurrency = selectedBranch === 'Dubai' ? 'AED' : 'LKR';
+
   const financialSummary = React.useMemo(() => {
     let revenue = 0;
     let cost = 0;
-    let profit = 0;
+    let grossProfit = 0;
 
     tickets.forEach((t) => {
       const s = t.sellingPrice !== undefined ? t.sellingPrice : (t.totalRefundable || 0);
       const c = t.costPrice !== undefined ? t.costPrice : 0;
       revenue += s;
       cost += c;
-      profit += (t.profit !== undefined ? t.profit : (s - c));
+      grossProfit += (t.profit !== undefined ? t.profit : (s - c));
     });
 
     visas.forEach((v) => {
@@ -304,12 +317,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       const c = Number(v.purchasingPrice) || 0;
       revenue += s;
       cost += c;
-      profit += (s - c);
+      grossProfit += (s - c);
     });
 
-    const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : '0.0';
-    return { revenue, cost, profit, margin };
-  }, [tickets, visas]);
+    const totalExpenses = (expenses || []).reduce((sum, e) => sum + (e.amount || 0), 0);
+    const netProfit = grossProfit - totalExpenses;
+    const margin = revenue > 0 ? ((netProfit / revenue) * 100).toFixed(1) : '0.0';
+    return { revenue, cost, grossProfit, totalExpenses, netProfit, margin };
+  }, [tickets, visas, expenses]);
 
   return (
     <div className="space-y-6">
@@ -348,7 +363,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             className="flex items-center space-x-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer"
           >
             <Calculator className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Financials & Profit</span>
+            <span>Financials & Net Profit</span>
             <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -367,14 +382,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                  Financial Accounting & Profit Intelligence
+                  Financial Accounting & Net Profit Intelligence
                 </span>
-                <span className="bg-blue-500/20 text-blue-300 text-[10px] font-mono px-2 py-0.2 rounded font-bold">
-                  Date Range Filter Available
+                <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-mono px-2 py-0.2 rounded font-bold border border-emerald-500/30">
+                  Net Profit Real-Time
                 </span>
               </div>
               <div className="text-sm font-black text-white group-hover:text-emerald-300 transition-colors flex items-center gap-2 mt-0.5">
-                <span>Select Date Range to View P&L, Revenue & Supplier Costs</span>
+                <span>Select Date Range to View P&L, Revenue, Operating Expenses & Final Net Profit</span>
                 <ArrowUpRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
               </div>
             </div>
@@ -383,12 +398,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <div className="flex items-center gap-4 bg-slate-800/80 px-4 py-2 rounded-xl border border-slate-700 font-mono text-xs shrink-0">
             <div>
               <span className="text-[10px] text-slate-400 uppercase font-sans block">Total Revenue</span>
-              <span className="font-bold text-white">LKR {financialSummary.revenue.toLocaleString()}</span>
+              <span className="font-bold text-white">{branchCurrency} {financialSummary.revenue.toLocaleString()}</span>
+            </div>
+            <div className="h-6 w-px bg-slate-700"></div>
+            <div>
+              <span className="text-[10px] text-slate-400 uppercase font-sans block">Expenses</span>
+              <span className="font-bold text-rose-400">({branchCurrency} {financialSummary.totalExpenses.toLocaleString()})</span>
             </div>
             <div className="h-6 w-px bg-slate-700"></div>
             <div>
               <span className="text-[10px] text-slate-400 uppercase font-sans block">Net Profit</span>
-              <span className="font-black text-emerald-400">+LKR {financialSummary.profit.toLocaleString()}</span>
+              <span className={`font-black ${financialSummary.netProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {financialSummary.netProfit >= 0 ? `+${branchCurrency} ${financialSummary.netProfit.toLocaleString()}` : `${branchCurrency} ${financialSummary.netProfit.toLocaleString()}`}
+              </span>
             </div>
             <div className="h-6 w-px bg-slate-700"></div>
             <div>
@@ -629,8 +651,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                         <span className="truncate" title={`${visa.lastName} ${visa.firstName}`}>
                           {visa.lastName} {visa.firstName}
                         </span>
-                        <span className="text-[11px] font-normal text-slate-400 ml-2 shrink-0">
-                          {visa.nationality || 'SRI LANKAN'}
+                        <span className="text-[11px] font-normal text-slate-400 ml-2 shrink-0 inline-flex items-center space-x-1">
+                          <span>{getNationalityFlag(visa.nationality)}</span>
+                          <span>{visa.nationality || 'SRI LANKAN'}</span>
                         </span>
                       </div>
 
@@ -672,7 +695,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                         <span className="text-sm font-black font-mono text-amber-300 flex items-center gap-1.5">
                           <Calendar className="w-4 h-4 text-amber-400" />
                           <span className="underline decoration-amber-500 decoration-2 underline-offset-2">
-                            {visa.expiryDate || visa.passportExpiry}
+                            {normalizeToFullDate(visa.expiryDate || visa.passportExpiry)}
                           </span>
                         </span>
                       </div>
@@ -831,7 +854,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     <div className="text-xs font-mono font-bold text-slate-300 flex items-center gap-2">
                       <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <span className="text-emerald-300 font-extrabold">
-                        FLY: {ticket.flyDate || 'N/A'}
+                        FLY: {normalizeToFullDate(ticket.flyDate) || 'N/A'}
                       </span>
                       <span className="text-slate-500">•</span>
                       <span className="text-slate-300 truncate">{route}</span>
@@ -924,7 +947,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <div className="flex items-center space-x-2 text-blue-600 border-b border-slate-100 pb-3 mb-3">
               <Layers className="w-4 h-4 text-blue-500" />
               <span className="text-sm font-bold tracking-tight text-slate-800">
-                Visa Category Summary
+                Services & Visa Category Breakdown
               </span>
             </div>
 
@@ -1017,7 +1040,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     <div className="flex items-center justify-between text-[11px] bg-amber-50 rounded px-2 py-1 border border-amber-200">
                       <span className="text-amber-900 font-extrabold flex items-center gap-1">
                         <Calendar className="w-3 h-3 text-amber-700" />
-                        <span>Expiry: <strong>{visa.expiryDate || visa.passportExpiry}</strong></span>
+                        <span>Expiry: <strong>{normalizeToFullDate(visa.expiryDate || visa.passportExpiry)}</strong></span>
                       </span>
                       <span className="text-[10px] text-blue-700 font-bold group-hover:underline">
                         Details &rarr;

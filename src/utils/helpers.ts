@@ -1,4 +1,7 @@
 import { VisaStatus, TicketStatus } from '../types';
+import { normalizeToFullDate } from './imageUrlHelpers';
+
+export { normalizeToFullDate };
 
 export function getVisaStatusBadgeClass(status: VisaStatus): string {
   switch (status) {
@@ -63,36 +66,43 @@ export function formatLKR(amount: number): string {
   }).format(amount).replace('LKR', 'LKR ');
 }
 
-export function computeValidityText(expiryDateStr?: string): { mainText: string; subText?: string; isExpired: boolean } {
-  if (!expiryDateStr || expiryDateStr === 'N/A') {
-    return { mainText: 'N/A', isExpired: false };
+export function computeValidityText(expiryDateStr?: string): { mainText: string; subText?: string; isExpired: boolean; fullDate: string } {
+  if (!expiryDateStr || expiryDateStr === 'N/A' || expiryDateStr === 'Pending') {
+    return { mainText: 'N/A', subText: '', isExpired: false, fullDate: 'N/A' };
   }
 
-  // Expecting format DD/MM/YYYY
-  const parts = expiryDateStr.split('/');
+  const normalized = normalizeToFullDate(expiryDateStr);
+  const parts = normalized.split('/');
   if (parts.length !== 3) {
-    return { mainText: expiryDateStr, isExpired: false };
+    return { mainText: normalized || expiryDateStr, subText: '', isExpired: false, fullDate: normalized || expiryDateStr };
   }
 
-  const expDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+  const expDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+  if (isNaN(expDate.getTime())) {
+    return { mainText: normalized, subText: '', isExpired: false, fullDate: normalized };
+  }
+
   const today = new Date();
+  today.setHours(0, 0, 0, 0);
   
   // Calculate difference in days
-  const diffTime = today.getTime() - expDate.getTime();
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  const diffTime = expDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-  if (diffDays > 0) {
+  if (diffDays < 0) {
+    const ago = Math.abs(diffDays);
     return {
-      mainText: `Expired (${diffDays}d ago)`,
-      subText: `(Exp: ${expiryDateStr})`,
-      isExpired: true
+      mainText: `Expired (${ago}d ago)`,
+      subText: `(Exp: ${normalized})`,
+      isExpired: true,
+      fullDate: normalized
     };
   } else {
-    const daysLeft = Math.abs(diffDays);
     return {
-      mainText: `Valid (${daysLeft} days left)`,
-      subText: `(Exp: ${expiryDateStr})`,
-      isExpired: false
+      mainText: `Valid (${diffDays} days left)`,
+      subText: `(Exp: ${normalized})`,
+      isExpired: false,
+      fullDate: normalized
     };
   }
 }
@@ -101,18 +111,28 @@ export function getVisaDurationDays(category: string): number {
   if (!category) return 30;
   const lower = category.toLowerCase();
 
-  // 1 Year Visas (Tourist / Business Multiple Entry)
+  // Golden Visa (10 Years)
+  if (lower.includes('golden visa') || lower.includes('golden')) {
+    return 3650;
+  }
+
+  // 2 Years (Freelancer / Residency / Partner)
+  if (lower.includes('2 year') || lower.includes('2 yr') || lower.includes('2 years') || lower.includes('730')) {
+    return 730;
+  }
+
+  // 1 Year Visas (Tourist / Business Multiple Entry / Residency)
   if (lower.includes('1 year') || lower.includes('1 yr') || lower.includes('365') || lower.includes('one year')) {
     return 365;
   }
 
-  // 6 Months Visas (Tourist / Business Multiple Entry)
+  // 6 Months Visas
   if (lower.includes('6 month') || lower.includes('6m') || lower.includes('180') || lower.includes('six month')) {
     return 180;
   }
 
-  // 90 Days Visas
-  if (lower.includes('90 day') || lower.includes('90d') || lower.includes('90')) {
+  // 3 Months / 90 Days Visas (Family Visit / Tourist)
+  if (lower.includes('3 month') || lower.includes('3m') || lower.includes('90 day') || lower.includes('90d') || lower.includes('90')) {
     return 90;
   }
 
@@ -121,8 +141,8 @@ export function getVisaDurationDays(category: string): number {
     return 60;
   }
 
-  // 30 Days Visas (Single / Multiple Entry)
-  if (lower.includes('30 day') || lower.includes('30d') || lower.includes('30')) {
+  // 1 Month / 30 Days Visas (Family Visit / Single Entry)
+  if (lower.includes('1 month') || lower.includes('1m') || lower.includes('30 day') || lower.includes('30d') || lower.includes('30')) {
     return 30;
   }
 
@@ -146,44 +166,15 @@ export function calculateVisaExpiryDate(entryDateStr: string, categoryStr: strin
   }
 
   const durationDays = getVisaDurationDays(categoryStr);
-  const trimmed = entryDateStr.trim();
-  let day: number | null = null;
-  let month: number | null = null;
-  let year: number | null = null;
+  const normalized = normalizeToFullDate(entryDateStr);
+  const parts = normalized.split('/');
+  if (parts.length !== 3) return null;
 
-  // Check YYYY-MM-DD
-  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(trimmed)) {
-    const parts = trimmed.split('-');
-    year = parseInt(parts[0], 10);
-    month = parseInt(parts[1], 10);
-    day = parseInt(parts[2], 10);
-  } else {
-    // Check DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY
-    const parts = trimmed.split(/[/.-]/);
-    if (parts.length === 3) {
-      if (parts[0].length === 4) {
-        // YYYY/MM/DD
-        year = parseInt(parts[0], 10);
-        month = parseInt(parts[1], 10);
-        day = parseInt(parts[2], 10);
-      } else {
-        // DD/MM/YYYY
-        day = parseInt(parts[0], 10);
-        month = parseInt(parts[1], 10);
-        year = parseInt(parts[2], 10);
-      }
-    }
-  }
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const year = parseInt(parts[2], 10);
 
-  if (!day || !month || !year || isNaN(day) || isNaN(month) || isNaN(year)) {
-    return null;
-  }
-
-  if (year < 100) {
-    year += 2000;
-  }
-
-  if (month < 1 || month > 12 || day < 1 || day > 31) {
+  if (isNaN(day) || isNaN(month) || isNaN(year) || month < 1 || month > 12 || day < 1 || day > 31) {
     return null;
   }
 

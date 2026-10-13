@@ -1,5 +1,7 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
+import fsPromises from "fs/promises";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 
@@ -211,6 +213,137 @@ async function startServer() {
     return { cleanBase64, mimeType, dataUrl };
   };
 
+  const MONTH_MAP_SERVER: Record<string, string> = {
+    JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06',
+    JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12',
+    JANUARY: '01', FEBRUARY: '02', MARCH: '03', APRIL: '04', JUNE: '06',
+    JULY: '07', AUGUST: '08', SEPTEMBER: '09', OCTOBER: '10', NOVEMBER: '11', DECEMBER: '12'
+  };
+
+  const normalizeToFullDateServer = (raw?: string | null, isDob: boolean = false): string => {
+    if (!raw || typeof raw !== 'string') return '';
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === 'N/A' || trimmed === 'Pending' || trimmed === 'undefined' || trimmed === 'null') {
+      return trimmed === 'N/A' ? 'N/A' : '';
+    }
+
+    const currentYear = new Date().getFullYear();
+    const currentYY = currentYear % 100;
+
+    // 1. Standard DD/MM/YYYY
+    const standardMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (standardMatch) {
+      const d = standardMatch[1].padStart(2, '0');
+      const m = standardMatch[2].padStart(2, '0');
+      const y = standardMatch[3];
+      return `${d}/${m}/${y}`;
+    }
+
+    // 2. DD/MM/YY (2-digit year)
+    const dmyTwoMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+    if (dmyTwoMatch) {
+      const d = dmyTwoMatch[1].padStart(2, '0');
+      const m = dmyTwoMatch[2].padStart(2, '0');
+      const yy = parseInt(dmyTwoMatch[3], 10);
+      const fullYear = isDob ? (yy > currentYY ? 1900 + yy : 2000 + yy) : (yy > 70 ? 1900 + yy : 2000 + yy);
+      return `${d}/${m}/${fullYear}`;
+    }
+
+    // 3. ISO YYYY-MM-DD or YYYY/MM/DD
+    const isoMatch = trimmed.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+    if (isoMatch) {
+      const y = isoMatch[1];
+      const m = isoMatch[2].padStart(2, '0');
+      const d = isoMatch[3].padStart(2, '0');
+      return `${d}/${m}/${y}`;
+    }
+
+    // 4. DD-MM-YYYY or DD.MM.YYYY
+    const dotDashMatch = trimmed.match(/^(\d{1,2})[-\.](\d{1,2})[-\.](\d{4})$/);
+    if (dotDashMatch) {
+      const d = dotDashMatch[1].padStart(2, '0');
+      const m = dotDashMatch[2].padStart(2, '0');
+      const y = dotDashMatch[3];
+      return `${d}/${m}/${y}`;
+    }
+
+    // 5. DD-MM-YY or DD.MM.YY
+    const dotDashTwoMatch = trimmed.match(/^(\d{1,2})[-\.](\d{1,2})[-\.](\d{2})$/);
+    if (dotDashTwoMatch) {
+      const d = dotDashTwoMatch[1].padStart(2, '0');
+      const m = dotDashTwoMatch[2].padStart(2, '0');
+      const yy = parseInt(dotDashTwoMatch[3], 10);
+      const fullYear = isDob ? (yy > currentYY ? 1900 + yy : 2000 + yy) : (yy > 70 ? 1900 + yy : 2000 + yy);
+      return `${d}/${m}/${fullYear}`;
+    }
+
+    // 6. Airline ticket format: e.g. "25AUG", "25 AUG", "25-AUG", "25AUG26", "25AUG2026", "25-AUG-26", "25-AUG-2026"
+    const airTicketMatch = trimmed.match(/^(\d{1,2})[\s\-\.]*([A-Za-z]{3,9})(?:[\s\-\.]*(\d{2,4}))?$/);
+    if (airTicketMatch) {
+      const d = airTicketMatch[1].padStart(2, '0');
+      const monStr = airTicketMatch[2].toUpperCase();
+      const m = MONTH_MAP_SERVER[monStr] || MONTH_MAP_SERVER[monStr.substring(0, 3)] || '01';
+      let y = currentYear;
+      if (airTicketMatch[3]) {
+        const yStr = airTicketMatch[3];
+        if (yStr.length === 2) {
+          const yy = parseInt(yStr, 10);
+          y = isDob ? (yy > currentYY ? 1900 + yy : 2000 + yy) : (yy > 70 ? 1900 + yy : 2000 + yy);
+        } else {
+          y = parseInt(yStr, 10);
+        }
+      }
+      return `${d}/${m}/${y}`;
+    }
+
+    // 7. Month first format: "AUG 25", "AUG 25 2026", "Aug 25, 2026"
+    const monFirstMatch = trimmed.match(/^([A-Za-z]{3,9})[\s\-\.]+(\d{1,2})(?:[,\s\-\.]+(\d{2,4}))?$/);
+    if (monFirstMatch) {
+      const monStr = monFirstMatch[1].toUpperCase();
+      const m = MONTH_MAP_SERVER[monStr] || MONTH_MAP_SERVER[monStr.substring(0, 3)] || '01';
+      const d = monFirstMatch[2].padStart(2, '0');
+      let y = currentYear;
+      if (monFirstMatch[3]) {
+        const yStr = monFirstMatch[3];
+        if (yStr.length === 2) {
+          const yy = parseInt(yStr, 10);
+          y = isDob ? (yy > currentYY ? 1900 + yy : 2000 + yy) : (yy > 70 ? 1900 + yy : 2000 + yy);
+        } else {
+          y = parseInt(yStr, 10);
+        }
+      }
+      return `${d}/${m}/${y}`;
+    }
+
+    // 8. 6-digit MRZ YYMMDD e.g. "920815" or "350221"
+    if (/^\d{6}$/.test(trimmed)) {
+      const yy = parseInt(trimmed.substring(0, 2), 10);
+      const m = trimmed.substring(2, 4);
+      const d = trimmed.substring(4, 6);
+      const fullYear = isDob ? (yy > currentYY ? 1900 + yy : 2000 + yy) : 2000 + yy;
+      return `${d}/${m}/${fullYear}`;
+    }
+
+    // 9. Partial day/month only: "25/08" or "25-08" -> append currentYear
+    const dmMatch = trimmed.match(/^(\d{1,2})[-\/.](\d{1,2})$/);
+    if (dmMatch) {
+      const d = dmMatch[1].padStart(2, '0');
+      const m = dmMatch[2].padStart(2, '0');
+      return `${d}/${m}/${currentYear}`;
+    }
+
+    const parsed = Date.parse(trimmed);
+    if (!isNaN(parsed)) {
+      const dt = new Date(parsed);
+      const d = String(dt.getDate()).padStart(2, '0');
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const y = dt.getFullYear();
+      return `${d}/${m}/${y}`;
+    }
+
+    return trimmed;
+  };
+
   // API Route to parse passport image or visa document
   app.post("/api/parse-passport", async (req, res) => {
     let resolvedDataUrl = "";
@@ -238,7 +371,9 @@ async function startServer() {
       const prompt = `You are an expert immigration document OCR scanner and AI processor specialized in UAE Visas, Entry Permits, E-Visas, Extension Approvals, Passports, and Emirates IDs.
 Analyze the attached document/image carefully and extract all travel and visa details accurately.
 
-CRITICAL INSTRUCTION FOR VISA VALIDITY EXPIRY:
+CRITICAL INSTRUCTION FOR ALL DATES (FULL DATE REQUIRED):
+- Every single date ("expiryDate", "passportExpiry", "entryDate", "dateOfBirth") MUST be returned as a complete full date strictly formatted as DD/MM/YYYY with a 4-digit year (e.g. 08/08/2025, 21/02/2035, 15/08/1992).
+- NEVER return a 2-digit year (e.g. convert "35" to "2035", "92" to "1992").
 - Prioritize extracting the VISA VALIDITY EXPIRY DATE into "expiryDate" (formatted DD/MM/YYYY). Look for text like "Valid Until", "Expiry Date", "Permit Expiry", "Visa Validity", "Exit Before", "Last Date of Stay", or "Valid To".
 - If Entry Date and Visa Duration (e.g. 60 Days, 30 Days) are visible, calculate or confirm the Visa Expiry Date = Entry Date + Duration.
 - Extract Passport Expiry Date into "passportExpiry" ONLY if clearly present on a passport page; otherwise leave it blank.
@@ -247,18 +382,18 @@ Extraction Rules:
 1. Extract Surname / Last Name into "lastName" in ALL CAPS.
 2. Extract Given Names / First Name into "firstName" in ALL CAPS.
 3. Extract Passport Number into "passportNo" in ALL CAPS (e.g. N1234567, P0220820).
-4. Extract Visa Validity Expiry Date into "expiryDate" strictly formatted as DD/MM/YYYY (e.g. 08/08/2025).
-5. Extract Entry Date into "entryDate" formatted as DD/MM/YYYY if visible (e.g. arrival stamp date or entry permit date).
-6. Extract Passport Expiry Date into "passportExpiry" formatted as DD/MM/YYYY if visible.
+4. Extract Visa Validity Expiry Date into "expiryDate" strictly formatted as DD/MM/YYYY with 4-digit year (e.g. 08/08/2025).
+5. Extract Entry Date into "entryDate" formatted strictly as DD/MM/YYYY with 4-digit year if visible (e.g. arrival stamp date or entry permit date).
+6. Extract Passport Expiry Date into "passportExpiry" formatted strictly as DD/MM/YYYY with 4-digit year if visible.
 7. Extract Nationality / Country of Citizenship into "nationality" in ALL CAPS (e.g. SRI LANKAN, INDIAN, PAKISTANI).
-8. Extract Date of Birth into "dateOfBirth" formatted as DD/MM/YYYY (e.g. 15/08/1992).
+8. Extract Date of Birth into "dateOfBirth" formatted strictly as DD/MM/YYYY with 4-digit year (e.g. 15/08/1992).
 9. Extract UAE Unified Number / UID Number / UDB Number into "unifiedNumber" if present (e.g. 123456789 or 9-digit number).
 10. Extract ICP Application No / Visa File Number / Entry Permit No into "icpFileNo" if present (e.g. 201/2025/1/1234567).
 11. Extract Visa Category into "visaCategory" if visible (e.g. 60 Days (P), 30 Days (P), Umrah Visa).
 12. Extract Visa Processing Country / Destination into "destinationCountry" if visible e.g. "United Arab Emirates (UAE)", "Saudi Arabia", "Qatar".
 13. Extract Visa Status into "status" if visible (e.g. In Process, Posted, Documents Required, Approved, Extended, Used).
 
-Format all dates as DD/MM/YYYY. If any field is not visible or unreadable, return an empty string for that field.`;
+Format all dates strictly as DD/MM/YYYY. If any field is not visible or unreadable, return an empty string for that field.`;
 
       const response = await generateWithFallback(ai, {
         contents: {
@@ -282,14 +417,14 @@ Format all dates as DD/MM/YYYY. If any field is not visible or unreadable, retur
               lastName: { type: Type.STRING, description: "Surname / Last Name in UPPERCASE" },
               firstName: { type: Type.STRING, description: "Given Names / First Name in UPPERCASE" },
               passportNo: { type: Type.STRING, description: "Passport Number in UPPERCASE" },
-              passportExpiry: { type: Type.STRING, description: "Passport Expiry Date in DD/MM/YYYY format" },
+              passportExpiry: { type: Type.STRING, description: "Passport Expiry Date in full DD/MM/YYYY format with 4-digit year" },
               nationality: { type: Type.STRING, description: "Country of Citizenship in UPPERCASE" },
               destinationCountry: { type: Type.STRING, description: "Destination / Visa Processing Country" },
-              dateOfBirth: { type: Type.STRING, description: "Date of Birth in DD/MM/YYYY format" },
+              dateOfBirth: { type: Type.STRING, description: "Date of Birth in full DD/MM/YYYY format with 4-digit year" },
               unifiedNumber: { type: Type.STRING, description: "UAE Unified Number / UID / UDB Number" },
               icpFileNo: { type: Type.STRING, description: "ICP Visa File / Application Number" },
-              entryDate: { type: Type.STRING, description: "Entry Date in DD/MM/YYYY format" },
-              expiryDate: { type: Type.STRING, description: "Visa Expiry Date in DD/MM/YYYY format" },
+              entryDate: { type: Type.STRING, description: "Entry Date in full DD/MM/YYYY format with 4-digit year" },
+              expiryDate: { type: Type.STRING, description: "Visa Expiry Date in full DD/MM/YYYY format with 4-digit year" },
               visaCategory: { type: Type.STRING, description: "Visa duration or category" },
               status: { type: Type.STRING, description: "Visa status e.g. In Process, Posted, Documents Required, Approved, Extended, Used" },
             },
@@ -299,6 +434,12 @@ Format all dates as DD/MM/YYYY. If any field is not visible or unreadable, retur
 
       const text = response.text || "{}";
       const parsedData = JSON.parse(text);
+
+      // Ensure full dates with 4-digit year across all extracted date fields
+      if (parsedData.expiryDate) parsedData.expiryDate = normalizeToFullDateServer(parsedData.expiryDate);
+      if (parsedData.passportExpiry) parsedData.passportExpiry = normalizeToFullDateServer(parsedData.passportExpiry);
+      if (parsedData.entryDate) parsedData.entryDate = normalizeToFullDateServer(parsedData.entryDate);
+      if (parsedData.dateOfBirth) parsedData.dateOfBirth = normalizeToFullDateServer(parsedData.dateOfBirth, true);
 
       res.json({
         success: true,
@@ -347,6 +488,12 @@ Format all dates as DD/MM/YYYY. If any field is not visible or unreadable, retur
       const prompt = `You are an expert travel agent OCR and e-ticket document parser.
 Analyze the attached air ticket, e-ticket receipt, PDF, or boarding pass image carefully and extract all flight reservation details.
 
+CRITICAL INSTRUCTION FOR ALL DATES (FULL DATE REQUIRED):
+- "flyDate" and "returnDate" MUST ALWAYS be returned as a complete full date strictly in DD/MM/YYYY format with a 4-digit year (e.g. "25/08/2026", "14/10/2026").
+- Airline tickets, itineraries, and boarding passes frequently print dates with only day and month (e.g. "25AUG", "14OCT", "02SEP", "25/08") or with 2-digit years (e.g. "25AUG26", "25-AUG-26").
+- You MUST ALWAYS infer and construct the full 4-digit year (use current/upcoming year 2026) and return the full date strictly formatted as DD/MM/YYYY (e.g. "25/08/2026").
+- NEVER return partial dates like "25AUG", "25/08", or "25AUG26".
+
 Extraction Rules:
 1. Extract Ticket Number(s) as an array of strings e.g. ["1572134128637"] or ["0742134128901"]. If multiple passengers or tickets, list all ticket numbers found.
 2. Extract PNR / Booking Reference into "pnr" in UPPERCASE e.g. "DCYMLG", "EY265".
@@ -355,10 +502,10 @@ Extraction Rules:
 5. Extract Flight Number into "flightNo" e.g. "UL 225", "EK 651".
 6. Extract Departure Origin City/Airport into "departureLocation" e.g. "Colombo (CMB)", "Dubai (DXB)", "Abu Dhabi (AUH)".
 7. Extract Arrival Destination City/Airport into "arrivalLocation" e.g. "Dubai (DXB)", "Doha (DOH)", "Male (MLE)".
-8. Extract Departure/Fly Date into "flyDate" formatted strictly as DD/MM/YYYY e.g. "25/08/2026".
+8. Extract Departure/Fly Date into "flyDate" formatted strictly as full DD/MM/YYYY with 4-digit year e.g. "25/08/2026".
 9. Extract Flight Departure Time into "departureTime" (e.g. "10:30 AM", "18:45") and Arrival Time into "arrivalTime" (e.g. "02:45 PM", "22:30").
 10. If Round Trip, extract Return Flight Number into "returnFlightNo" (e.g. "UL 226"), Return Departure Time into "returnDepartureTime" (e.g. "14:20"), and Return Arrival Time into "returnArrivalTime" (e.g. "20:45").
-11. Extract Return Date into "returnDate" formatted strictly as DD/MM/YYYY if round-trip; otherwise return "N/A".
+11. Extract Return Date into "returnDate" formatted strictly as full DD/MM/YYYY with 4-digit year if round-trip; otherwise return "N/A".
 12. Extract Trip Type into "tripType" as "One Way", "Round Trip", or "Multi-City".
 13. Extract Cabin Class into "cabinClass" as "Economy", "Premium Economy", "Business", or "First".
 14. Extract Baggage Allowance into "baggageAllowance" e.g. "30 Kg", "20 Kg", "2 PCs".
@@ -369,7 +516,7 @@ Extraction Rules:
 19. Determine if this document is a Group Booking / Multi-passenger booking into "isGroupBooking" (boolean: set to true if multiple passengers or ticket numbers are listed under the same PNR reference, otherwise false).
 20. If it is a group or has multiple passengers, extract "groupName" (e.g. tour or delegation title if noted), "groupSize" (number of passengers), and "travelersList" (list of full names of all passengers).
 
-Format dates as DD/MM/YYYY. If any field is missing or unreadable, return empty string or 0 for numeric fields.`;
+Format dates strictly as DD/MM/YYYY. If any field is missing or unreadable, return empty string or 0 for numeric fields.`;
 
       const response = await generateWithFallback(ai, {
         contents: {
@@ -403,8 +550,8 @@ Format dates as DD/MM/YYYY. If any field is missing or unreadable, return empty 
               returnArrivalTime: { type: Type.STRING, description: "Return Arrival Time e.g. 20:45" },
               departureLocation: { type: Type.STRING, description: "Departure Origin e.g. Colombo (CMB)" },
               arrivalLocation: { type: Type.STRING, description: "Arrival Destination e.g. Dubai (DXB)" },
-              flyDate: { type: Type.STRING, description: "Fly Date in DD/MM/YYYY" },
-              returnDate: { type: Type.STRING, description: "Return Date in DD/MM/YYYY or N/A" },
+              flyDate: { type: Type.STRING, description: "Fly Date in full DD/MM/YYYY format with 4-digit year" },
+              returnDate: { type: Type.STRING, description: "Return Date in full DD/MM/YYYY format with 4-digit year or N/A" },
               tripType: { type: Type.STRING, description: "Trip Type: One Way, Round Trip, or Multi-City" },
               cabinClass: { type: Type.STRING, description: "Cabin Class e.g. Economy, Business" },
               baggageAllowance: { type: Type.STRING, description: "Baggage allowance e.g. 30 Kg" },
@@ -424,6 +571,12 @@ Format dates as DD/MM/YYYY. If any field is missing or unreadable, return empty 
 
       const text = response.text || "{}";
       const parsedData = JSON.parse(text);
+
+      // Ensure full dates with 4-digit year for air tickets
+      if (parsedData.flyDate) parsedData.flyDate = normalizeToFullDateServer(parsedData.flyDate);
+      if (parsedData.returnDate && parsedData.returnDate !== 'N/A') {
+        parsedData.returnDate = normalizeToFullDateServer(parsedData.returnDate);
+      }
 
       res.json({
         success: true,
@@ -523,6 +676,48 @@ Tasks:
           ? "AI daily rate limit reached. You can verify on ICP portal directly."
           : (error.message || "Failed to check visa status"),
       });
+    }
+  });
+
+  // Check if original brand logo exists on disk
+  app.get("/api/current-logo", (req, res) => {
+    const publicPath = path.join(process.cwd(), "public");
+    const files = ["logos_page-0002.jpg", "logo.png", "logo.jpg"];
+    for (const f of files) {
+      if (fs.existsSync(path.join(publicPath, f))) {
+        return res.json({ exists: true, url: `/${f}?t=${fs.statSync(path.join(publicPath, f)).mtimeMs}` });
+      }
+    }
+    return res.json({ exists: false, url: null });
+  });
+
+  // Upload original logo binary file directly
+  app.post("/api/upload-logo", async (req, res) => {
+    try {
+      const { imageBase64 } = req.body;
+      if (!imageBase64) {
+        return res.status(400).json({ success: false, error: "Missing imageBase64 data" });
+      }
+
+      const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+      const buffer = Buffer.from(base64Data, "base64");
+
+      const publicDir = path.join(process.cwd(), "public");
+      await fsPromises.mkdir(publicDir, { recursive: true });
+      await fsPromises.writeFile(path.join(publicDir, "logos_page-0002.jpg"), buffer);
+      await fsPromises.writeFile(path.join(publicDir, "logo.png"), buffer);
+
+      const distDir = path.join(process.cwd(), "dist");
+      if (fs.existsSync(distDir)) {
+        await fsPromises.writeFile(path.join(distDir, "logos_page-0002.jpg"), buffer);
+        await fsPromises.writeFile(path.join(distDir, "logo.png"), buffer);
+      }
+
+      console.log("Original logo successfully saved to public/logos_page-0002.jpg and logo.png");
+      return res.json({ success: true, url: `/logos_page-0002.jpg?t=${Date.now()}` });
+    } catch (err: any) {
+      console.error("Failed to save logo:", err);
+      return res.status(500).json({ success: false, error: err.message || "Failed to save logo" });
     }
   });
 

@@ -108,11 +108,64 @@ export interface TicketFollowup {
   hideCustomer?: boolean;
   hideSupplier?: boolean;
   hideRefundable?: boolean;
+  branch?: BranchOffice; // 'Dubai' | 'Negombo'
 }
+
+export type BranchOffice = 'Dubai' | 'Negombo';
+export type BranchFilter = 'All' | 'Dubai' | 'Negombo';
+
+export const BRANCH_CONFIG = {
+  Dubai: {
+    id: 'Dubai',
+    name: 'Dubai Branch',
+    shortName: 'Dubai',
+    country: 'United Arab Emirates',
+    flag: '🇦🇪',
+    currency: 'AED',
+    location: 'Coastal building, Al tawar center Dubai',
+    phone: '+971 52 263 6372',
+    color: 'emerald',
+    badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  },
+  Negombo: {
+    id: 'Negombo',
+    name: 'Negombo Branch',
+    shortName: 'Negombo',
+    country: 'Sri Lanka',
+    flag: '🇱🇰',
+    currency: 'LKR',
+    location: '45/1/1 Meerigama Road, Pankada junction, Negombo',
+    phone: '+94 70 170 4613',
+    color: 'blue',
+    badgeClass: 'bg-blue-100 text-blue-800 border-blue-300',
+  },
+} as const;
 
 export type VisaPaymentStatus = 'Paid' | 'Pending' | 'Partially Paid';
 
-export const VISA_CATEGORIES = [
+export const DUBAI_SERVICES_CATEGORIES = [
+  'Golden Visa - Skilled Worker',
+  'Family Entry Permit (Inside Country)',
+  'Family Entry Permit (Outside Country)',
+  'Golden Visa - Property Investor',
+  'Family Visa 1 Month (Outside Country)',
+  'Family Visit 1 Month (Inside Country)',
+  'Family Visit 3 Months (Outside Country)',
+  'Family Visit 3 Months (Inside Country)',
+  '2 Years Freelancer Visa (Inside Country)',
+  '2 Years Freelancer Visa (Outside Country)',
+  'Company Setup',
+  'Family Residency Visa Renewal',
+  'Schengen Visa Services',
+  'Equivalency Certificate Services',
+  'Visa Cancellation',
+  '30 Days Single Entry',
+  '60 Days Single Entry',
+  '30 Days Multiple Entry',
+  '60 Days Multiple Entry'
+] as const;
+
+export const SRI_LANKA_VISA_CATEGORIES = [
   '30 Days Single Entry',
   '30 Days Multiple Entry',
   '60 Days Single Entry',
@@ -120,10 +173,33 @@ export const VISA_CATEGORIES = [
   '6 Months Tourist Multiple Entry',
   '6 Months Business Multiple Entry',
   '1 Year Tourist Multiple Entry',
-  '1 Year Business Multiple Entry'
+  '1 Year Business Multiple Entry',
+  'Transit Visa',
+  'Work / Employment Visa'
+] as const;
+
+export const VISA_CATEGORIES = [
+  ...DUBAI_SERVICES_CATEGORIES,
+  '6 Months Tourist Multiple Entry',
+  '6 Months Business Multiple Entry',
+  '1 Year Tourist Multiple Entry',
+  '1 Year Business Multiple Entry',
+  'Transit Visa',
+  'Work / Employment Visa'
 ] as const;
 
 export type VisaCategory = typeof VISA_CATEGORIES[number] | string;
+
+export function getCategoriesForBranch(branch?: BranchOffice | BranchFilter | string): readonly string[] {
+  if (branch === 'Dubai') {
+    return DUBAI_SERVICES_CATEGORIES;
+  }
+  if (branch === 'Negombo') {
+    return SRI_LANKA_VISA_CATEGORIES;
+  }
+  const set = new Set<string>([...DUBAI_SERVICES_CATEGORIES, ...SRI_LANKA_VISA_CATEGORIES]);
+  return Array.from(set);
+}
 
 export interface VisaGroupMember {
   id: string;
@@ -137,8 +213,11 @@ export interface VisaGroupMember {
   icpFileNo?: string;
   passportAttachment?: string;
   passportFileName?: string;
+  photoAttachment?: string; // Base64 or Data URL of applicant photo
+  photoFileName?: string;
   visaAttachment?: string;
   visaFileName?: string;
+  branch?: BranchOffice;
 }
 
 export interface VisaFollowup {
@@ -162,6 +241,8 @@ export interface VisaFollowup {
   sellingPrice?: number; // Selling / Invoiced Price to Agency / Customer
   paymentStatus?: VisaPaymentStatus; // 'Paid' | 'Pending' | 'Partially Paid'
   currency?: string; // Currency e.g. "AED", "LKR", "USD" (default "AED")
+  photoAttachment?: string; // Base64 or Data URL of applicant passport-size photo
+  photoFileName?: string;
   passportAttachment?: string; // Base64 or Data URL of attached passport document/image
   passportFileName?: string;
   visaAttachment?: string; // Base64 or Data URL of attached visa document/e-visa
@@ -183,6 +264,7 @@ export interface VisaFollowup {
   pricingMode?: 'total' | 'per_pax'; // Mode of pricing calculation
   costPerPax?: number;
   sellingPerPax?: number;
+  branch?: BranchOffice; // 'Dubai' | 'Negombo'
 }
 
 export interface ActivityComment {
@@ -213,3 +295,50 @@ export const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
   dubaiPhone: '+971 52 263 6372',
   email: 'info@seagullglobal.lk'
 };
+
+export type ExpenseCategory =
+  | 'Office Rent & Tenancy'
+  | 'Salaries & Staff Commissions'
+  | 'Utilities, Electricity & Water'
+  | 'Internet, Telecom & Phone'
+  | 'Marketing, Ads & Promotion'
+  | 'Government, Typing & Portal Fees'
+  | 'Trade License & Legal Fees'
+  | 'Software, IT & Subscriptions'
+  | 'Office Supplies, Courier & Printing'
+  | 'Bank Charges & Currency Exchange'
+  | 'Travel, Fuel & Transportation'
+  | 'Refreshments & Hospitality'
+  | 'Miscellaneous Overhead';
+
+export const EXPENSE_CATEGORIES: readonly ExpenseCategory[] = [
+  'Office Rent & Tenancy',
+  'Salaries & Staff Commissions',
+  'Utilities, Electricity & Water',
+  'Internet, Telecom & Phone',
+  'Marketing, Ads & Promotion',
+  'Government, Typing & Portal Fees',
+  'Trade License & Legal Fees',
+  'Software, IT & Subscriptions',
+  'Office Supplies, Courier & Printing',
+  'Bank Charges & Currency Exchange',
+  'Travel, Fuel & Transportation',
+  'Refreshments & Hospitality',
+  'Miscellaneous Overhead'
+] as const;
+
+export interface ExpenseItem {
+  id: string;
+  date: string; // YYYY-MM-DD
+  title: string;
+  category: ExpenseCategory | string;
+  amount: number;
+  currency: 'AED' | 'LKR' | 'USD' | string;
+  branch: BranchOffice; // 'Dubai' | 'Negombo'
+  paymentMethod: 'Cash' | 'Bank Transfer' | 'Credit Card' | 'Cheque' | 'Online' | string;
+  vendor?: string;
+  receiptNo?: string;
+  notes?: string;
+  createdAt: string;
+}
+

@@ -3,6 +3,7 @@ import { GroupApplicantItem } from './BulkPasteVisaModal';
 import { Users, Plus, Trash2, ClipboardList, ScanLine, DollarSign, Wallet, Percent, TrendingUp, Check, AlertCircle } from 'lucide-react';
 import { parsePassportMRZ } from '../utils/imageUrlHelpers';
 import { VisaPaymentStatus } from '../types';
+import { NationalitySelect } from './NationalitySelect';
 
 interface GroupVisaApplicantsSectionProps {
   groupApplicants: GroupApplicantItem[];
@@ -461,24 +462,14 @@ export const GroupVisaApplicantsSection: React.FC<GroupVisaApplicantsSectionProp
 
                   <div>
                     <label className="font-bold text-slate-700 block mb-0.5 text-[11px]">
-                      Nationality
+                      Nationality / Citizenship
                     </label>
-                    <select
+                    <NationalitySelect
                       value={app.nationality || defaultNationality}
-                      onChange={(e) => onUpdateApplicant(app.id, 'nationality', e.target.value)}
-                      className="w-full p-2 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-800 focus:bg-white cursor-pointer"
-                    >
-                      <option value="SRI LANKAN">🇱🇰 Sri Lankan</option>
-                      <option value="INDIAN">🇮🇳 Indian</option>
-                      <option value="PAKISTANI">🇵🇰 Pakistani</option>
-                      <option value="BANGLADESHI">🇧🇩 Bangladeshi</option>
-                      <option value="FILIPINO">🇵🇭 Filipino</option>
-                      <option value="NEPALESE">🇳🇵 Nepalese</option>
-                      <option value="INDONESIAN">🇮🇩 Indonesian</option>
-                      <option value="MALAYSIAN">🇲🇾 Malaysian</option>
-                      <option value="EMIRATI">🇦🇪 Emirati</option>
-                      <option value="SAUDI">🇸🇦 Saudi</option>
-                    </select>
+                      onChange={(val) => onUpdateApplicant(app.id, 'nationality', val)}
+                      size="md"
+                      className="w-full text-xs font-bold"
+                    />
                   </div>
                 </div>
 
