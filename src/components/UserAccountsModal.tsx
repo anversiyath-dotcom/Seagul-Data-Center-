@@ -11,7 +11,8 @@ import {
   updateUserAccountByAdmin,
   updateOwnUserProfile,
   deleteUserInvite,
-  deleteUserAccount
+  deleteUserAccount,
+  formatReadableFirestoreError
 } from '../lib/firestoreService';
 import {
   Users,
@@ -147,10 +148,22 @@ export const UserAccountsModal: React.FC<UserAccountsModalProps> = ({
       setNewRole('Staff');
       setNewBranch('Negombo');
       setActiveTab('manage');
-    } catch (err: any) {
-      setFeedback({ type: 'error', text: err?.message || 'Failed to create user account.' });
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', text: formatReadableFirestoreError(err) || 'Failed to create user account.' });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const runAdminAction = async (fn: () => Promise<void>, successMessage?: string) => {
+    setFeedback(null);
+    try {
+      await fn();
+      if (successMessage) {
+        setFeedback({ type: 'success', text: successMessage });
+      }
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', text: formatReadableFirestoreError(err) || 'Action failed. Please try again.' });
     }
   };
 
@@ -169,8 +182,8 @@ export const UserAccountsModal: React.FC<UserAccountsModalProps> = ({
         jobTitle: myJobTitle.trim(),
       });
       setFeedback({ type: 'success', text: 'Your profile details have been updated.' });
-    } catch (err: any) {
-      setFeedback({ type: 'error', text: err?.message || 'Failed to update profile.' });
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', text: formatReadableFirestoreError(err) || 'Failed to update profile.' });
     } finally {
       setIsSubmitting(false);
     }
@@ -461,10 +474,12 @@ export const UserAccountsModal: React.FC<UserAccountsModalProps> = ({
                             <div className="flex items-center space-x-1.5">
                               <button
                                 type="button"
-                                onClick={async () => {
-                                  await deleteUserInvite(inv.id);
-                                  setConfirmDeleteId(null);
-                                }}
+                                onClick={() =>
+                                  runAdminAction(async () => {
+                                    await deleteUserInvite(inv.id);
+                                    setConfirmDeleteId(null);
+                                  }, `Invite for ${inv.email} removed.`)
+                                }
                                 className="px-2.5 py-1 bg-red-600 text-white text-xs font-bold rounded-lg cursor-pointer"
                               >
                                 Confirm Remove
@@ -555,7 +570,10 @@ export const UserAccountsModal: React.FC<UserAccountsModalProps> = ({
                           value={u.role}
                           disabled={isSelf}
                           onChange={(e) =>
-                            updateUserAccountByAdmin(u.uid, { role: e.target.value as UserRole })
+                            runAdminAction(
+                              () => updateUserAccountByAdmin(u.uid, { role: e.target.value as UserRole }),
+                              `Updated role for ${u.displayName}.`
+                            )
                           }
                           className="px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 cursor-pointer disabled:opacity-60"
                           title="Role"
@@ -569,7 +587,10 @@ export const UserAccountsModal: React.FC<UserAccountsModalProps> = ({
                           value={u.branchAccess}
                           disabled={isSelf}
                           onChange={(e) =>
-                            updateUserAccountByAdmin(u.uid, { branchAccess: e.target.value as UserBranchAccess })
+                            runAdminAction(
+                              () => updateUserAccountByAdmin(u.uid, { branchAccess: e.target.value as UserBranchAccess }),
+                              `Updated branch access for ${u.displayName}.`
+                            )
                           }
                           className="px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 cursor-pointer disabled:opacity-60"
                           title="Branch Access"
@@ -585,7 +606,10 @@ export const UserAccountsModal: React.FC<UserAccountsModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() =>
-                                  updateUserAccountByAdmin(u.uid, { status: 'Active' as UserAccountStatus })
+                                  runAdminAction(
+                                    () => updateUserAccountByAdmin(u.uid, { status: 'Active' as UserAccountStatus }),
+                                    `Activated ${u.displayName}.`
+                                  )
                                 }
                                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg flex items-center space-x-1 cursor-pointer shadow-xs"
                               >
@@ -596,7 +620,10 @@ export const UserAccountsModal: React.FC<UserAccountsModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() =>
-                                  updateUserAccountByAdmin(u.uid, { status: 'Suspended' as UserAccountStatus })
+                                  runAdminAction(
+                                    () => updateUserAccountByAdmin(u.uid, { status: 'Suspended' as UserAccountStatus }),
+                                    `Suspended ${u.displayName}.`
+                                  )
                                 }
                                 className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 text-xs font-bold rounded-lg flex items-center space-x-1 cursor-pointer"
                               >
@@ -609,10 +636,12 @@ export const UserAccountsModal: React.FC<UserAccountsModalProps> = ({
                               <div className="flex items-center space-x-1">
                                 <button
                                   type="button"
-                                  onClick={async () => {
-                                    await deleteUserAccount(u.uid);
-                                    setConfirmDeleteId(null);
-                                  }}
+                                  onClick={() =>
+                                    runAdminAction(async () => {
+                                      await deleteUserAccount(u.uid);
+                                      setConfirmDeleteId(null);
+                                    }, `Deleted user account for ${u.displayName}.`)
+                                  }
                                   className="px-2.5 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg cursor-pointer"
                                 >
                                   Delete

@@ -63,8 +63,8 @@ export interface FirestoreErrorInfo {
   };
 }
 
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
-  const errInfo: FirestoreErrorInfo = {
+function buildFirestoreErrorInfo(error: unknown, operationType: OperationType, path: string | null): FirestoreErrorInfo {
+  return {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
       userId: auth.currentUser?.uid,
@@ -80,8 +80,17 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  const errInfo = buildFirestoreErrorInfo(error, operationType, path);
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
+}
+
+function logFirestoreSnapshotError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo = buildFirestoreErrorInfo(error, operationType, path);
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
 }
 
 // Deterministic invite ID from normalized email (68 chars, matches ^[a-zA-Z0-9_-]+$)
@@ -127,7 +136,7 @@ export function subscribeToExpenses(
     });
     onUpdate(list);
   }, (error) => {
-    console.error("Firestore expenses sync error:", error);
+    logFirestoreSnapshotError(error, OperationType.LIST, EXPENSES_COLLECTION);
     if (onError) onError(error);
   });
 }
@@ -143,7 +152,7 @@ export function subscribeToTickets(
     });
     onUpdate(list);
   }, (error) => {
-    console.error("Firestore tickets sync error:", error);
+    logFirestoreSnapshotError(error, OperationType.LIST, TICKETS_COLLECTION);
     if (onError) onError(error);
   });
 }
@@ -159,7 +168,7 @@ export function subscribeToVisas(
     });
     onUpdate(list);
   }, (error) => {
-    console.error("Firestore visas sync error:", error);
+    logFirestoreSnapshotError(error, OperationType.LIST, VISAS_COLLECTION);
     if (onError) onError(error);
   });
 }
@@ -175,7 +184,7 @@ export function subscribeToComments(
     });
     onUpdate(list);
   }, (error) => {
-    console.error("Firestore comments sync error:", error);
+    logFirestoreSnapshotError(error, OperationType.LIST, COMMENTS_COLLECTION);
     if (onError) onError(error);
   });
 }
@@ -184,6 +193,7 @@ export function subscribeToCompanyProfile(
   onUpdate: (profile: CompanyProfile) => void,
   onError?: (err: Error) => void
 ) {
+  const path = `${SETTINGS_COLLECTION}/${COMPANY_PROFILE_DOC}`;
   const docRef = doc(db, SETTINGS_COLLECTION, COMPANY_PROFILE_DOC);
   return onSnapshot(docRef, (docSnap) => {
     if (docSnap.exists()) {
@@ -192,7 +202,7 @@ export function subscribeToCompanyProfile(
       onUpdate(DEFAULT_COMPANY_PROFILE);
     }
   }, (error) => {
-    console.error("Firestore company profile sync error:", error);
+    logFirestoreSnapshotError(error, OperationType.GET, path);
     if (onError) onError(error);
   });
 }
@@ -203,6 +213,7 @@ export function subscribeToCurrentUserAccount(
   onUpdate: (account: UserAccount | null) => void,
   onError?: (err: Error) => void
 ) {
+  const path = `${USERS_COLLECTION}/${uid}`;
   const docRef = doc(db, USERS_COLLECTION, uid);
   return onSnapshot(docRef, (docSnap) => {
     if (docSnap.exists()) {
@@ -211,7 +222,7 @@ export function subscribeToCurrentUserAccount(
       onUpdate(null);
     }
   }, (error) => {
-    console.error("Firestore user account sync error:", error);
+    logFirestoreSnapshotError(error, OperationType.GET, path);
     if (onError) onError(error);
   });
 }
@@ -227,7 +238,7 @@ export function subscribeToAllUserAccounts(
     });
     onUpdate(list);
   }, (error) => {
-    console.error("Firestore all users sync error:", error);
+    logFirestoreSnapshotError(error, OperationType.LIST, USERS_COLLECTION);
     if (onError) onError(error);
   });
 }
@@ -243,7 +254,7 @@ export function subscribeToAllUserInvites(
     });
     onUpdate(list);
   }, (error) => {
-    console.error("Firestore user invites sync error:", error);
+    logFirestoreSnapshotError(error, OperationType.LIST, USER_INVITES_COLLECTION);
     if (onError) onError(error);
   });
 }
@@ -255,20 +266,64 @@ export interface RegistrationFormData {
   branchAccess: UserBranchAccess;
 }
 
+export function formatReadableFirestoreError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  try {
+    const parsed = JSON.parse(raw) as Partial<FirestoreErrorInfo>;
+    if (parsed && typeof parsed.error === 'string') {
+      if (parsed.error.includes('Missing or insufficient permissions') || parsed.error.includes('permission-denied')) {
+        return 'Permission denied by database security rules. Please verify you are signed in with an authorized, verified Google account.';
+      }
+      if (parsed.error.includes('client is offline') || parsed.error.includes('unavailable')) {
+        return 'Unable to reach the database from this computer. Please check your internet connection or firewall and try again.';
+      }
+      return parsed.error;
+    }
+  } catch {
+    // Not JSON, return original message
+  }
+  if (raw.includes('Missing or insufficient permissions') || raw.includes('permission-denied')) {
+    return 'Permission denied by database security rules. Please verify your account permissions and try again.';
+  }
+  return raw;
+}
+
 export async function ensureOrCreateUserAccount(
   user: User,
   registrationData?: RegistrationFormData
 ): Promise<UserAccount> {
   const path = `${USERS_COLLECTION}/${user.uid}`;
+  const rawEmail = user.email || user.providerData?.find(p => p?.email)?.email || '';
+  const email = rawEmail.trim().toLowerCase().slice(0, 254);
+
+  if (!email || !email.includes('@')) {
+    throw new Error('Your Google account did not return an email address. Please sign in with a valid Google account.');
+  }
+
+  if (user.emailVerified === false) {
+    throw new Error('Your Google email address is not verified. Please verify your email or use a standard verified Google account.');
+  }
+
   try {
     const userRef = doc(db, USERS_COLLECTION, user.uid);
     const existingSnap = await getDoc(userRef);
 
     if (existingSnap.exists()) {
-      return existingSnap.data() as UserAccount;
+      const existingAccount = existingSnap.data() as UserAccount;
+      if (existingAccount.status === 'Pending' && registrationData?.displayName?.trim()) {
+        const now = new Date().toISOString();
+        const updatedFields = {
+          displayName: registrationData.displayName.trim().slice(0, 120),
+          phone: (registrationData.phone || existingAccount.phone || '').trim().slice(0, 40),
+          jobTitle: (registrationData.jobTitle || existingAccount.jobTitle || '').trim().slice(0, 80),
+          updatedAt: now,
+        };
+        await updateDoc(userRef, updatedFields);
+        return { ...existingAccount, ...updatedFields };
+      }
+      return existingAccount;
     }
 
-    const email = (user.email || '').trim().toLowerCase().slice(0, 254);
     const now = new Date().toISOString();
     const isBootstrappedAdmin = email === BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase();
 
@@ -354,23 +409,36 @@ export async function createUserAccountInvite(params: {
   const inviteId = await emailToInviteId(email);
   const path = `${USER_INVITES_COLLECTION}/${inviteId}`;
   const now = new Date().toISOString();
-
-  const invite: UserInvite = cleanUndefined({
-    id: inviteId,
-    email,
-    displayName: params.displayName.trim().slice(0, 120),
-    ...(params.phone?.trim() ? { phone: params.phone.trim().slice(0, 40) } : {}),
-    ...(params.jobTitle?.trim() ? { jobTitle: params.jobTitle.trim().slice(0, 80) } : {}),
-    role: params.role,
-    branchAccess: params.branchAccess,
-    status: 'Pending',
-    createdAt: now,
-    updatedAt: now,
-    createdBy: params.createdByUid,
-  });
+  const inviteRef = doc(db, USER_INVITES_COLLECTION, inviteId);
 
   try {
-    await setDoc(doc(db, USER_INVITES_COLLECTION, inviteId), invite);
+    let existingCreatedAt = now;
+    let existingCreatedBy = params.createdByUid;
+    let existingEmail = email;
+
+    const existingSnap = await getDoc(inviteRef);
+    if (existingSnap.exists()) {
+      const existingData = existingSnap.data() as Partial<UserInvite>;
+      if (existingData.createdAt) existingCreatedAt = existingData.createdAt;
+      if (existingData.createdBy) existingCreatedBy = existingData.createdBy;
+      if (existingData.email) existingEmail = existingData.email;
+    }
+
+    const invite: UserInvite = cleanUndefined({
+      id: inviteId,
+      email: existingEmail,
+      displayName: params.displayName.trim().slice(0, 120),
+      ...(params.phone?.trim() ? { phone: params.phone.trim().slice(0, 40) } : {}),
+      ...(params.jobTitle?.trim() ? { jobTitle: params.jobTitle.trim().slice(0, 80) } : {}),
+      role: params.role,
+      branchAccess: params.branchAccess,
+      status: 'Pending',
+      createdAt: existingCreatedAt,
+      updatedAt: now,
+      createdBy: existingCreatedBy,
+    });
+
+    await setDoc(inviteRef, invite);
     return invite;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);

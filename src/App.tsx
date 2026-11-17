@@ -29,6 +29,7 @@ import {
   subscribeToAllUserAccounts,
   subscribeToAllUserInvites,
   ensureOrCreateUserAccount,
+  formatReadableFirestoreError,
   RegistrationFormData,
   saveTicketToFirestore, 
   deleteTicketFromFirestore, 
@@ -64,11 +65,13 @@ export default function App() {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [currentUserAccount, setCurrentUserAccount] = useState<UserAccount | null>(null);
   const [allUserAccounts, setAllUserAccounts] = useState<UserAccount[]>([]);
   const [allUserInvites, setAllUserInvites] = useState<UserInvite[]>([]);
   const [isUserAccountsOpen, setIsUserAccountsOpen] = useState(false);
   const pendingRegistrationRef = useRef<RegistrationFormData | null>(null);
+  const unsubAccountRef = useRef<(() => void) | null>(null);
 
   const isAuthenticated = Boolean(
     authReady && firebaseUser && currentUserAccount && currentUserAccount.status === 'Active'
@@ -160,14 +163,43 @@ export default function App() {
     safeSetItem('tf_company_profile', companyProfile);
   }, [companyProfile]);
 
+  const provisionSignedInUser = async (user: FirebaseUser, regData?: RegistrationFormData) => {
+    if (unsubAccountRef.current) {
+      unsubAccountRef.current();
+      unsubAccountRef.current = null;
+    }
+
+    setAuthError(null);
+    setAuthLoading(true);
+    try {
+      const account = await ensureOrCreateUserAccount(user, regData);
+      setCurrentUserAccount(account);
+
+      unsubAccountRef.current = subscribeToCurrentUserAccount(
+        user.uid,
+        (updatedAccount) => {
+          if (updatedAccount) {
+            setCurrentUserAccount(updatedAccount);
+          }
+        },
+        (err) => {
+          setAuthError(formatReadableFirestoreError(err));
+        }
+      );
+    } catch (err) {
+      console.error('Failed to load or create user account:', err);
+      setAuthError(formatReadableFirestoreError(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   // Firebase Auth listener & User Account provisioning
   useEffect(() => {
-    let unsubAccount: (() => void) | null = null;
-
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
-      if (unsubAccount) {
-        unsubAccount();
-        unsubAccount = null;
+      if (unsubAccountRef.current) {
+        unsubAccountRef.current();
+        unsubAccountRef.current = null;
       }
 
       setFirebaseUser(user);
@@ -175,32 +207,22 @@ export default function App() {
 
       if (!user) {
         setCurrentUserAccount(null);
+        setAuthError(null);
         setAuthLoading(false);
         return;
       }
 
-      setAuthLoading(true);
-      try {
-        const regData = pendingRegistrationRef.current || undefined;
-        pendingRegistrationRef.current = null;
-        const account = await ensureOrCreateUserAccount(user, regData);
-        setCurrentUserAccount(account);
-
-        unsubAccount = subscribeToCurrentUserAccount(user.uid, (updatedAccount) => {
-          if (updatedAccount) {
-            setCurrentUserAccount(updatedAccount);
-          }
-        });
-      } catch (err) {
-        console.error('Failed to load or create user account:', err);
-      } finally {
-        setAuthLoading(false);
-      }
+      const regData = pendingRegistrationRef.current || undefined;
+      pendingRegistrationRef.current = null;
+      await provisionSignedInUser(user, regData);
     });
 
     return () => {
       unsubAuth();
-      if (unsubAccount) unsubAccount();
+      if (unsubAccountRef.current) {
+        unsubAccountRef.current();
+        unsubAccountRef.current = null;
+      }
     };
   }, []);
 
@@ -224,12 +246,22 @@ export default function App() {
       return;
     }
 
-    const unsubUsers = subscribeToAllUserAccounts((list) => {
-      setAllUserAccounts(list);
-    });
-    const unsubInvites = subscribeToAllUserInvites((list) => {
-      setAllUserInvites(list);
-    });
+    const unsubUsers = subscribeToAllUserAccounts(
+      (list) => {
+        setAllUserAccounts(list);
+      },
+      (err) => {
+        console.warn('Unable to list all user accounts:', formatReadableFirestoreError(err));
+      }
+    );
+    const unsubInvites = subscribeToAllUserInvites(
+      (list) => {
+        setAllUserInvites(list);
+      },
+      (err) => {
+        console.warn('Unable to list all user invites:', formatReadableFirestoreError(err));
+      }
+    );
 
     return () => {
       unsubUsers();
@@ -592,8 +624,17 @@ export default function App() {
       <LoginScreen
         pendingAccount={currentUserAccount}
         authLoading={authLoading}
+        authError={authError}
+        signedInEmail={firebaseUser?.email || null}
+        onClearAuthError={() => setAuthError(null)}
         onPrepareRegistration={(data) => {
           pendingRegistrationRef.current = data;
+        }}
+        onRetryAccountSetup={async (data) => {
+          if (auth.currentUser) {
+            pendingRegistrationRef.current = null;
+            await provisionSignedInUser(auth.currentUser, data || undefined);
+          }
         }}
       />
     );

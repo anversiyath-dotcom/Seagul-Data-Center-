@@ -22,13 +22,45 @@ import {
 interface LoginScreenProps {
   pendingAccount?: UserAccount | null;
   authLoading?: boolean;
+  authError?: string | null;
+  signedInEmail?: string | null;
+  onClearAuthError?: () => void;
   onPrepareRegistration?: (data: RegistrationFormData | null) => void;
+  onRetryAccountSetup?: (data: RegistrationFormData | null) => Promise<void>;
+}
+
+function formatGoogleAuthError(err: any): string {
+  const code = err?.code || '';
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+  if (code === 'auth/popup-closed-by-user') {
+    return 'Google sign-in popup was closed before completion. Please try again.';
+  }
+  if (code === 'auth/cancelled-popup-request') {
+    return 'Another sign-in window was already open. Please wait a moment and click again.';
+  }
+  if (code === 'auth/popup-blocked') {
+    return 'Popup was blocked by this browser. Please allow popups in your browser address bar and try again.';
+  }
+  if (code === 'auth/unauthorized-domain') {
+    return `This address (${hostname || 'current domain'}) is not listed in Firebase Authorized Domains yet. Add "${hostname}" under Firebase Console → Authentication → Settings → Authorized domains, or open the official preview link.`;
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Network error reaching Google Sign-In from this computer. Please check internet/firewall access and try again.';
+  }
+  if (code === 'auth/operation-not-supported-in-this-environment' || code === 'auth/web-storage-unsupported') {
+    return 'Browser privacy/cookie settings on this computer blocked sign-in. Please allow cookies/popups or open this link in a standard browser tab.';
+  }
+  return err?.message || 'Unable to sign in with Google. Please try again.';
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   pendingAccount,
   authLoading = false,
+  authError = null,
+  signedInEmail = null,
+  onClearAuthError,
   onPrepareRegistration,
+  onRetryAccountSetup,
 }) => {
   const [mode, setMode] = useState<'signin' | 'create'>('signin');
   const [displayName, setDisplayName] = useState('');
@@ -38,41 +70,41 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  const visibleError = errorMessage || authError || '';
+
   const handleGoogleSignIn = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setErrorMessage('');
+    if (onClearAuthError) onClearAuthError();
 
+    let regData: RegistrationFormData | null = null;
     if (mode === 'create') {
       if (!displayName.trim()) {
         setErrorMessage('Please enter your Full Name to create your user account.');
         return;
       }
-      if (onPrepareRegistration) {
-        onPrepareRegistration({
-          displayName: displayName.trim().slice(0, 120),
-          phone: phone.trim().slice(0, 40),
-          jobTitle: jobTitle.trim().slice(0, 80),
-          branchAccess,
-        });
-      }
-    } else {
-      if (onPrepareRegistration) {
-        onPrepareRegistration(null);
-      }
+      regData = {
+        displayName: displayName.trim().slice(0, 120),
+        phone: phone.trim().slice(0, 40),
+        jobTitle: jobTitle.trim().slice(0, 80),
+        branchAccess,
+      };
     }
 
+    if (onPrepareRegistration) {
+      onPrepareRegistration(regData);
+    }
+
+    const previousUid = auth.currentUser?.uid || null;
     setIsLoading(true);
     try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (err: any) {
-      const code = err?.code || '';
-      if (code === 'auth/popup-closed-by-user') {
-        setErrorMessage('Google sign-in popup was closed before completion. Please try again.');
-      } else if (code === 'auth/popup-blocked') {
-        setErrorMessage('Popup was blocked by your browser. Please allow popups for this site and try again.');
-      } else {
-        setErrorMessage(err?.message || 'Unable to sign in with Google. Please try again.');
+      const cred = await signInWithPopup(auth, googleProvider);
+      if (previousUid && cred.user.uid === previousUid && onRetryAccountSetup) {
+        if (onPrepareRegistration) onPrepareRegistration(null);
+        await onRetryAccountSetup(regData);
       }
+    } catch (err: any) {
+      setErrorMessage(formatGoogleAuthError(err));
     } finally {
       setIsLoading(false);
     }
@@ -80,6 +112,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
   const handleSignOut = async () => {
     setErrorMessage('');
+    if (onClearAuthError) onClearAuthError();
     await signOut(auth);
   };
 
@@ -191,6 +224,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               onClick={() => {
                 setMode('signin');
                 setErrorMessage('');
+                if (onClearAuthError) onClearAuthError();
               }}
               className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
                 mode === 'signin'
@@ -206,6 +240,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               onClick={() => {
                 setMode('create');
                 setErrorMessage('');
+                if (onClearAuthError) onClearAuthError();
               }}
               className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
                 mode === 'create'
@@ -221,12 +256,47 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
         {/* Form Body */}
         <div className="p-6 space-y-5">
-          {errorMessage && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-3.5 rounded-r-lg flex items-start space-x-2.5 text-xs text-red-800">
-              <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold">Authentication Notice:</span> {errorMessage}
+          {visibleError && (
+            <div className="bg-red-50 border-l-4 border-red-500 p-3.5 rounded-r-lg space-y-2 text-xs text-red-800">
+              <div className="flex items-start space-x-2.5">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Authentication Notice:</span> {visibleError}
+                </div>
               </div>
+              {signedInEmail && (
+                <div className="flex flex-wrap items-center gap-2 pt-1 pl-6">
+                  {onRetryAccountSetup && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setErrorMessage('');
+                        if (onClearAuthError) onClearAuthError();
+                        await onRetryAccountSetup(
+                          mode === 'create' && displayName.trim()
+                            ? {
+                                displayName: displayName.trim().slice(0, 120),
+                                phone: phone.trim().slice(0, 40),
+                                jobTitle: jobTitle.trim().slice(0, 80),
+                                branchAccess,
+                              }
+                            : null
+                        );
+                      }}
+                      className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-md text-[11px] font-bold cursor-pointer"
+                    >
+                      Retry for {signedInEmail}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="px-2.5 py-1 bg-white border border-red-300 text-red-700 hover:bg-red-100 rounded-md text-[11px] font-bold cursor-pointer"
+                  >
+                    Switch Google Account
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

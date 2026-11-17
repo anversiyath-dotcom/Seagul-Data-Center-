@@ -182,8 +182,8 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if isVerifiedUser() && (
-        resource.data.uid == request.auth.uid ||
-        request.auth.token.email.lower() == 'anversiyath@gmail.com'
+        isAdmin() ||
+        resource.data.uid == request.auth.uid
       );
 
       allow create: if isValidId(userId)
@@ -243,12 +243,12 @@ service cloud.firestore {
     // --- User Invites Collection (Pre-created Accounts by Admin) ---
     match /userInvites/{inviteId} {
       allow get: if isValidId(inviteId) && isVerifiedUser() && (
-        isAdmin() ||
         resource == null ||
-        existing().email.lower() == request.auth.token.email.lower()
+        existing().email.lower() == request.auth.token.email.lower() ||
+        isAdmin()
       );
       allow list: if isVerifiedUser() && (
-        request.auth.token.email.lower() == 'anversiyath@gmail.com' ||
+        isAdmin() ||
         resource.data.email.lower() == request.auth.token.email.lower()
       );
 
@@ -281,7 +281,7 @@ service cloud.firestore {
     // --- Operational Collections (Active Staff & Admin) ---
     match /tickets/{ticketId} {
       allow get: if isValidId(ticketId) && isActiveStaff();
-      allow list: if isVerifiedUser() && resource.data.id is string && resource.data.id.size() > 0;
+      allow list: if isActiveStaff();
       allow create: if isValidId(ticketId) && isActiveStaff() && isValidTicket(incoming()) && incoming().id == ticketId;
       allow update: if isValidId(ticketId)
         && isActiveStaff()
@@ -296,7 +296,7 @@ service cloud.firestore {
 
     match /visas/{visaId} {
       allow get: if isValidId(visaId) && isActiveStaff();
-      allow list: if isVerifiedUser() && resource.data.id is string && resource.data.id.size() > 0;
+      allow list: if isActiveStaff();
       allow create: if isValidId(visaId) && isActiveStaff() && isValidVisa(incoming()) && incoming().id == visaId;
       allow update: if isValidId(visaId)
         && isActiveStaff()
@@ -313,7 +313,7 @@ service cloud.firestore {
 
     match /comments/{commentId} {
       allow get: if isValidId(commentId) && isActiveStaff();
-      allow list: if isVerifiedUser() && resource.data.id is string && resource.data.id.size() > 0;
+      allow list: if isActiveStaff();
       allow create: if isValidId(commentId) && isActiveStaff() && isValidComment(incoming()) && incoming().id == commentId;
       allow update: if isValidId(commentId) && isAdmin() && isValidComment(incoming()) && incoming().id == existing().id;
       allow delete: if isValidId(commentId) && isAdmin();
@@ -321,7 +321,7 @@ service cloud.firestore {
 
     match /expenses/{expenseId} {
       allow get: if isValidId(expenseId) && isActiveStaff();
-      allow list: if isVerifiedUser() && resource.data.id is string && resource.data.id.size() > 0;
+      allow list: if isActiveStaff();
       allow create: if isValidId(expenseId) && isActiveStaff() && isValidExpense(incoming()) && incoming().id == expenseId;
       allow update: if isValidId(expenseId) && isActiveStaff() && isValidExpense(incoming()) && incoming().id == existing().id;
       allow delete: if isValidId(expenseId) && isActiveStaff();
