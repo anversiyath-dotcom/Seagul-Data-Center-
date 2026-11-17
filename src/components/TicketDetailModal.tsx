@@ -200,12 +200,12 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
 
             {/* Branch Office Selector Badge */}
             <select
-              value={ticket.branch || (ticket.currency === 'AED' || ticket.departureLocation?.includes('DXB') || ticket.arrivalLocation?.includes('DXB') ? 'Dubai' : 'Negombo')}
+              value={ticket.branch === 'Dubai' ? 'Dubai' : 'Negombo'}
               onChange={(e) => {
                 onUpdateTicket({ ...ticket, branch: e.target.value as any });
               }}
               className={`px-2 py-0.5 text-xs rounded-lg font-bold border cursor-pointer ${
-                (ticket.branch || 'Dubai') === 'Dubai'
+                ticket.branch === 'Dubai'
                   ? 'bg-emerald-950 text-emerald-300 border-emerald-500/50'
                   : 'bg-blue-950 text-blue-300 border-blue-500/50'
               }`}

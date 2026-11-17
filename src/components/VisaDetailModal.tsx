@@ -294,14 +294,14 @@ export const VisaDetailModal: React.FC<VisaDetailModalProps> = ({
             {/* Branch Office Badge & Reassign */}
             <div className="flex items-center space-x-1">
               <select
-                value={visa.branch || (visa.currency === 'AED' || visa.destinationCountry?.includes('UAE') ? 'Dubai' : 'Negombo')}
+                value={visa.branch === 'Dubai' ? 'Dubai' : 'Negombo'}
                 onChange={(e) => {
                   if (onUpdateVisa) {
                     onUpdateVisa({ ...visa, branch: e.target.value as any });
                   }
                 }}
                 className={`px-2.5 py-1 text-xs rounded-lg font-extrabold border cursor-pointer ${
-                  (visa.branch || (visa.currency === 'AED' ? 'Dubai' : 'Dubai')) === 'Dubai'
+                  visa.branch === 'Dubai'
                     ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                     : 'bg-blue-100 text-blue-800 border-blue-300'
                 }`}

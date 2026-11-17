@@ -73,7 +73,7 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
   onUpdatePaymentStatus,
   commentsCountMap,
   companyProfile,
-  onUpdateVisa
+  onUpdateVisa,
 }) => {
   // View mode: 'grid' (Comfortable Cards - all data visible at once) vs 'table' (Tabular spreadsheet view)
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
@@ -808,19 +808,21 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
                 </p>
                 <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
                   {selectedBranchFilter === 'Dubai'
-                    ? 'All historical data belongs to Sri Lanka Head Office. Dubai branch is ready for fresh data entry.'
+                    ? 'Records added under Dubai branch remain securely and separately stored in AED.'
                     : 'Try selecting different status or search terms above.'}
                 </p>
               </div>
               {selectedBranchFilter === 'Dubai' && (
-                <button
-                  type="button"
-                  onClick={onAddNewVisa}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm inline-flex items-center space-x-1.5 transition-colors cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Enter First Dubai Visa</span>
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={onAddNewVisa}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm inline-flex items-center space-x-1.5 transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ New Dubai Visa</span>
+                  </button>
+                </div>
               )}
             </div>
           ) : isGroupedByAgency ? (
@@ -1282,7 +1284,7 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
                   <span>{v.destinationCountry || 'UAE'}</span>
                 </span>
                 {(() => {
-                  const isDubai = v.branch === 'Dubai' || (!v.branch && (v.currency === 'AED' || v.destinationCountry?.includes('UAE')));
+                  const isDubai = v.branch === 'Dubai';
                   return (
                     <span className={`px-1.5 py-0.2 rounded font-bold border text-[9px] inline-flex items-center space-x-1 ${
                       isDubai ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-blue-50 text-blue-800 border-blue-300'
@@ -1570,7 +1572,7 @@ export const VisaFollowupTable: React.FC<VisaFollowupTableProps> = ({
                 <span>{v.destinationCountry || 'UAE'}</span>
               </div>
               {(() => {
-                const isDubai = v.branch === 'Dubai' || (!v.branch && (v.currency === 'AED' || v.destinationCountry?.includes('UAE')));
+                const isDubai = v.branch === 'Dubai';
                 return (
                   <span className={`px-1.5 py-0.5 rounded font-bold border text-[9px] inline-flex items-center space-x-1 ${
                     isDubai ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-blue-50 text-blue-800 border-blue-300'

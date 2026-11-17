@@ -342,3 +342,36 @@ export interface ExpenseItem {
   createdAt: string;
 }
 
+export type UserRole = 'Admin' | 'Manager' | 'Staff';
+export type UserAccountStatus = 'Active' | 'Pending' | 'Suspended';
+export type UserBranchAccess = 'All' | 'Dubai' | 'Negombo';
+
+export interface UserAccount {
+  uid: string;
+  email: string;
+  displayName: string;
+  phone?: string;
+  jobTitle?: string;
+  role: UserRole;
+  branchAccess: UserBranchAccess;
+  status: UserAccountStatus;
+  photoURL?: string;
+  inviteId?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+}
+
+export interface UserInvite {
+  id: string;
+  email: string;
+  displayName: string;
+  phone?: string;
+  jobTitle?: string;
+  role: UserRole;
+  branchAccess: UserBranchAccess;
+  status: 'Pending' | 'Claimed';
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+}

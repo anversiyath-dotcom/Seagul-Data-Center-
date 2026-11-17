@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { auth } from './lib/firebase';
 import { 
   TicketFollowup, 
   VisaFollowup, 
@@ -12,7 +14,9 @@ import {
   BranchFilter, 
   BranchOffice, 
   BRANCH_CONFIG,
-  ExpenseItem 
+  ExpenseItem,
+  UserAccount,
+  UserInvite
 } from './types';
 import { INITIAL_TICKETS, INITIAL_VISAS, INITIAL_COMMENTS } from './data/initialData';
 import { 
@@ -21,6 +25,11 @@ import {
   subscribeToComments, 
   subscribeToCompanyProfile, 
   subscribeToExpenses,
+  subscribeToCurrentUserAccount,
+  subscribeToAllUserAccounts,
+  subscribeToAllUserInvites,
+  ensureOrCreateUserAccount,
+  RegistrationFormData,
   saveTicketToFirestore, 
   deleteTicketFromFirestore, 
   saveVisaToFirestore, 
@@ -31,8 +40,7 @@ import {
   deleteExpenseFromFirestore,
   clearAllFirestoreData, 
   seedDemoFirestoreData,
-  checkAndSeedInitialDataIfNeeded,
-  ensureDubaiBranchEmptyAndAssignAllToSriLanka
+  checkAndSeedInitialDataIfNeeded
 } from './lib/firestoreService';
 import { safeGetItem, safeSetItem, safeRemoveItem, sanitizeVisasForLocalCache } from './utils/safeStorage';
 import { Header } from './components/Header';
@@ -47,28 +55,40 @@ import { AddVisaModal } from './components/AddVisaModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { LoginScreen } from './components/LoginScreen';
 import { CompanySettingsModal } from './components/CompanySettingsModal';
+import { UserAccountsModal } from './components/UserAccountsModal';
 import { FinancialAccountingView } from './components/FinancialAccountingView';
 import { PassengerDossierTracker } from './components/PassengerDossierTracker';
 
 export default function App() {
-  // Auth state - session based login screen
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    safeRemoveItem('tf_is_authenticated');
-    try {
-      return sessionStorage.getItem('tf_is_authenticated') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  // Firebase Auth & User Account state
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [currentUserAccount, setCurrentUserAccount] = useState<UserAccount | null>(null);
+  const [allUserAccounts, setAllUserAccounts] = useState<UserAccount[]>([]);
+  const [allUserInvites, setAllUserInvites] = useState<UserInvite[]>([]);
+  const [isUserAccountsOpen, setIsUserAccountsOpen] = useState(false);
+  const pendingRegistrationRef = useRef<RegistrationFormData | null>(null);
 
-  const handleLogout = () => {
+  const isAuthenticated = Boolean(
+    authReady && firebaseUser && currentUserAccount && currentUserAccount.status === 'Active'
+  );
+
+  const handleLogout = async () => {
     try {
       sessionStorage.removeItem('tf_is_authenticated');
     } catch {
       // ignore
     }
     safeRemoveItem('tf_is_authenticated');
-    setIsAuthenticated(false);
+    setCurrentUserAccount(null);
+    setAllUserAccounts([]);
+    setAllUserInvites([]);
+    setTickets([]);
+    setVisas([]);
+    setComments([]);
+    setExpenses([]);
+    await signOut(auth);
   };
 
   // Navigation & View state
@@ -87,11 +107,13 @@ export default function App() {
 
   // Main Datasets with Safe Storage persistence
   const [tickets, setTickets] = useState<TicketFollowup[]>(() => {
-    return safeGetItem<TicketFollowup[]>('tf_tickets', []);
+    const saved = safeGetItem<TicketFollowup[]>('tf_tickets', []);
+    return Array.isArray(saved) ? saved : [];
   });
 
   const [visas, setVisas] = useState<VisaFollowup[]>(() => {
-    return safeGetItem<VisaFollowup[]>('tf_visas', []);
+    const saved = safeGetItem<VisaFollowup[]>('tf_visas', []);
+    return Array.isArray(saved) ? saved : [];
   });
 
   const [comments, setComments] = useState<ActivityComment[]>(() => {
@@ -99,8 +121,12 @@ export default function App() {
   });
 
   const [expenses, setExpenses] = useState<ExpenseItem[]>(() => {
-    return safeGetItem<ExpenseItem[]>('tf_expenses', []);
+    const saved = safeGetItem<ExpenseItem[]>('tf_expenses', []);
+    return Array.isArray(saved) ? saved : [];
   });
+
+  // Status Notification Toast
+  const [toastNotification, setToastNotification] = useState<string | null>(null);
 
   // Company Profile state with Safe Storage persistence
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>(() => {
@@ -134,17 +160,102 @@ export default function App() {
     safeSetItem('tf_company_profile', companyProfile);
   }, [companyProfile]);
 
-  // Firestore Real-time Live Sync
+  // Firebase Auth listener & User Account provisioning
   useEffect(() => {
+    let unsubAccount: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      if (unsubAccount) {
+        unsubAccount();
+        unsubAccount = null;
+      }
+
+      setFirebaseUser(user);
+      setAuthReady(true);
+
+      if (!user) {
+        setCurrentUserAccount(null);
+        setAuthLoading(false);
+        return;
+      }
+
+      setAuthLoading(true);
+      try {
+        const regData = pendingRegistrationRef.current || undefined;
+        pendingRegistrationRef.current = null;
+        const account = await ensureOrCreateUserAccount(user, regData);
+        setCurrentUserAccount(account);
+
+        unsubAccount = subscribeToCurrentUserAccount(user.uid, (updatedAccount) => {
+          if (updatedAccount) {
+            setCurrentUserAccount(updatedAccount);
+          }
+        });
+      } catch (err) {
+        console.error('Failed to load or create user account:', err);
+      } finally {
+        setAuthLoading(false);
+      }
+    });
+
+    return () => {
+      unsubAuth();
+      if (unsubAccount) unsubAccount();
+    };
+  }, []);
+
+  // Enforce assigned branch for non-admin branch-specific accounts
+  useEffect(() => {
+    if (
+      currentUserAccount &&
+      currentUserAccount.role !== 'Admin' &&
+      currentUserAccount.branchAccess !== 'All' &&
+      selectedBranch !== currentUserAccount.branchAccess
+    ) {
+      setSelectedBranch(currentUserAccount.branchAccess);
+    }
+  }, [currentUserAccount, selectedBranch]);
+
+  // Admin subscriptions for User Accounts & Invites
+  useEffect(() => {
+    if (!authReady || !currentUserAccount || currentUserAccount.status !== 'Active' || currentUserAccount.role !== 'Admin') {
+      setAllUserAccounts([]);
+      setAllUserInvites([]);
+      return;
+    }
+
+    const unsubUsers = subscribeToAllUserAccounts((list) => {
+      setAllUserAccounts(list);
+    });
+    const unsubInvites = subscribeToAllUserInvites((list) => {
+      setAllUserInvites(list);
+    });
+
+    return () => {
+      unsubUsers();
+      unsubInvites();
+    };
+  }, [authReady, currentUserAccount?.uid, currentUserAccount?.role, currentUserAccount?.status]);
+
+  // Firestore Real-time Live Sync (attached ONLY when auth is ready and user is Active)
+  useEffect(() => {
+    if (!authReady || !firebaseUser || !currentUserAccount || currentUserAccount.status !== 'Active') {
+      return;
+    }
+
     // Check if initial seeding is needed ONLY for brand-new uninitialized database
     checkAndSeedInitialDataIfNeeded(INITIAL_TICKETS, INITIAL_VISAS, INITIAL_COMMENTS);
 
     const unsubTickets = subscribeToTickets((fireTickets) => {
-      setTickets(fireTickets);
+      if (Array.isArray(fireTickets)) {
+        setTickets(fireTickets);
+      }
     });
 
     const unsubVisas = subscribeToVisas((fireVisas) => {
-      setVisas(fireVisas);
+      if (Array.isArray(fireVisas)) {
+        setVisas(fireVisas);
+      }
     });
 
     const unsubComments = subscribeToComments((fireComments) => {
@@ -152,7 +263,9 @@ export default function App() {
     });
 
     const unsubExpenses = subscribeToExpenses((fireExpenses) => {
-      setExpenses(fireExpenses);
+      if (Array.isArray(fireExpenses)) {
+        setExpenses(fireExpenses);
+      }
     });
 
     const unsubProfile = subscribeToCompanyProfile((fireProfile) => {
@@ -168,19 +281,7 @@ export default function App() {
       unsubExpenses();
       unsubProfile();
     };
-  }, []);
-
-  // Automatic migration: Assign all existing historical records to Sri Lanka branch (Negombo)
-  // so Dubai branch starts completely clean with 0 records
-  useEffect(() => {
-    const migrationFlag = 'tf_branch_migration_srilanka_all_v3';
-    if (!localStorage.getItem(migrationFlag)) {
-      localStorage.setItem(migrationFlag, 'true');
-      setTickets(prev => (Array.isArray(prev) ? prev.map(t => ({ ...t, branch: 'Negombo' as const })) : []));
-      setVisas(prev => (Array.isArray(prev) ? prev.map(v => ({ ...v, branch: 'Negombo' as const })) : []));
-      ensureDubaiBranchEmptyAndAssignAllToSriLanka();
-    }
-  }, []);
+  }, [authReady, firebaseUser?.uid, currentUserAccount?.status]);
 
   // Dynamic list of recorded Agency / Customer names
   const recordedAgencies = React.useMemo(() => {
@@ -286,22 +387,6 @@ export default function App() {
   // Reset to clean dataset
   const handleResetToDemoData = handleClearAllData;
   const handleResetData = handleClearAllData;
-
-  // Reassign all existing records to Sri Lanka branch and keep Dubai empty
-  const handleReassignAllToSriLanka = () => {
-    setIsCompanySettingsOpen(false);
-    setConfirmModal({
-      isOpen: true,
-      title: 'Assign All Data to Sri Lanka Branch',
-      message: 'This will ensure all existing air tickets and visa records belong to the Sri Lanka (Negombo) branch, keeping the Dubai branch 100% clean with 0 records ready for new UAE entries. Proceed?',
-      confirmLabel: 'Assign to Sri Lanka Branch',
-      onConfirm: async () => {
-        setTickets(prev => (Array.isArray(prev) ? prev.map(t => ({ ...t, branch: 'Negombo' as const })) : []));
-        setVisas(prev => (Array.isArray(prev) ? prev.map(v => ({ ...v, branch: 'Negombo' as const })) : []));
-        await ensureDubaiBranchEmptyAndAssignAllToSriLanka();
-      }
-    });
-  };
 
   // Ticket CRUD operations
   const handleAddTicket = (newTicket: TicketFollowup) => {
@@ -491,8 +576,27 @@ export default function App() {
     return acc;
   }, {} as Record<string, number>);
 
+  if (!authReady || (firebaseUser && authLoading && !currentUserAccount)) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
+        <div className="flex flex-col items-center space-y-3">
+          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-xs font-semibold text-slate-300">Verifying account session...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
-    return <LoginScreen onLoginSuccess={() => setIsAuthenticated(true)} />;
+    return (
+      <LoginScreen
+        pendingAccount={currentUserAccount}
+        authLoading={authLoading}
+        onPrepareRegistration={(data) => {
+          pendingRegistrationRef.current = data;
+        }}
+      />
+    );
   }
 
   return (
@@ -517,6 +621,9 @@ export default function App() {
         visaCount={visas.length}
         onLogout={handleLogout}
         onOpenCompanySettings={() => setIsCompanySettingsOpen(true)}
+        onOpenUserAccounts={() => setIsUserAccountsOpen(true)}
+        currentUser={currentUserAccount}
+        pendingUsersCount={allUserAccounts.filter(u => u.status === 'Pending').length}
         companyProfile={companyProfile}
         selectedBranch={selectedBranch}
         setSelectedBranch={setSelectedBranch}
@@ -525,6 +632,13 @@ export default function App() {
         negomboVisaCount={negomboVisas.length}
         negomboTicketCount={negomboTickets.length}
       />
+
+      {/* Toast Notification */}
+      {toastNotification && (
+        <div className="bg-emerald-600 text-white px-4 py-2.5 text-xs font-bold text-center shadow-md animate-fade-in flex items-center justify-center space-x-2 border-b border-emerald-500">
+          <span>{toastNotification}</span>
+        </div>
+      )}
 
       {/* Active Branch Context Notification Bar */}
       {selectedBranch === 'Dubai' && (
@@ -549,7 +663,7 @@ export default function App() {
 
             <div className="flex items-center space-x-2 shrink-0">
               <span className="bg-emerald-900/70 border border-emerald-500/40 px-2.5 py-1 rounded-lg text-[11px] font-mono text-emerald-200">
-                {dubaiVisas.length} Visas • {dubaiTickets.length} Tickets
+                {dubaiVisas.length} Visas • {dubaiTickets.length} Tickets • {dubaiExpenses.length} Expenses
               </span>
               <button
                 onClick={() => {
@@ -913,8 +1027,17 @@ export default function App() {
         }}
         onClearAllData={handleClearAllData}
         onResetToDemoData={handleResetToDemoData}
-        onReassignAllToSriLanka={handleReassignAllToSriLanka}
       />
+
+      {currentUserAccount && (
+        <UserAccountsModal
+          isOpen={isUserAccountsOpen}
+          onClose={() => setIsUserAccountsOpen(false)}
+          currentUser={currentUserAccount}
+          users={allUserAccounts}
+          invites={allUserInvites}
+        />
+      )}
 
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-3 px-6 text-center text-xs text-slate-500">

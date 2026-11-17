@@ -81,6 +81,11 @@ export const PassengerDossierTracker: React.FC<PassengerDossierTrackerProps> = (
     }
   }, [initialSearchQuery]);
 
+  // Sync if selectedBranchFilter changes in header
+  React.useEffect(() => {
+    setBranchFilter(selectedBranchFilter);
+  }, [selectedBranchFilter]);
+
   // Build unified dossiers across all branches
   const allDossiers = useMemo(() => {
     return buildAllPassengerDossiers(visas, tickets);

@@ -1,37 +1,145 @@
 {
   "entities": {
-    "tickets": {
-      "title": "Tickets",
-      "description": "Travel ticket records",
+    "UserAccount": {
+      "title": "User Account",
+      "description": "Authenticated staff and administrator accounts with role and branch access control",
+      "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "passengerName": { "type": "string" },
-        "status": { "type": "string" }
-      }
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "minLength": 3, "maxLength": 254 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "jobTitle": { "type": "string", "maxLength": 80 },
+        "role": { "type": "string", "enum": ["Admin", "Manager", "Staff"] },
+        "branchAccess": { "type": "string", "enum": ["All", "Dubai", "Negombo"] },
+        "status": { "type": "string", "enum": ["Active", "Pending", "Suspended"] },
+        "photoURL": { "type": "string", "maxLength": 1000 },
+        "inviteId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 },
+        "createdBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["uid", "email", "displayName", "role", "branchAccess", "status", "createdAt", "updatedAt"]
     },
-    "visas": {
-      "title": "Visas",
-      "description": "Visa application records",
+    "UserInvite": {
+      "title": "User Account Invite",
+      "description": "Pre-created staff accounts provisioned by an administrator before first Google sign-in",
+      "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "passengerName": { "type": "string" },
-        "status": { "type": "string" }
-      }
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "minLength": 3, "maxLength": 254 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "jobTitle": { "type": "string", "maxLength": 80 },
+        "role": { "type": "string", "enum": ["Admin", "Manager", "Staff"] },
+        "branchAccess": { "type": "string", "enum": ["All", "Dubai", "Negombo"] },
+        "status": { "type": "string", "enum": ["Pending", "Claimed"] },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 },
+        "createdBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "email", "displayName", "role", "branchAccess", "status", "createdAt", "updatedAt", "createdBy"]
     },
-    "comments": {
-      "title": "Comments",
-      "description": "Activity comments",
+    "TicketFollowup": {
+      "title": "Ticket Followup",
+      "description": "Air ticket booking, reissue, and refund followup records",
+      "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "text": { "type": "string" }
-      }
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "customer": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "maxLength": 60 },
+        "pnr": { "type": "string", "maxLength": 40 },
+        "branch": { "type": "string", "enum": ["Dubai", "Negombo"] },
+        "currency": { "type": "string", "maxLength": 10 }
+      },
+      "required": ["id", "status", "customer"]
     },
-    "companyProfile": {
-      "title": "Company Profile",
-      "description": "Agency settings",
+    "VisaFollowup": {
+      "title": "Visa Followup",
+      "description": "Visa application and validity tracking records",
+      "type": "object",
       "properties": {
-        "companyName": { "type": "string" }
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "firstName": { "type": "string", "maxLength": 120 },
+        "lastName": { "type": "string", "maxLength": 120 },
+        "passportNo": { "type": "string", "maxLength": 40 },
+        "status": { "type": "string", "maxLength": 60 },
+        "branch": { "type": "string", "enum": ["Dubai", "Negombo"] },
+        "currency": { "type": "string", "maxLength": 10 }
+      },
+      "required": ["id", "status", "passportNo"]
+    },
+    "ActivityComment": {
+      "title": "Activity Comment",
+      "description": "Operational comments linked to tickets or visas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetType": { "type": "string", "enum": ["ticket", "visa"] },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "author": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "timestamp": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "targetType", "targetId", "author", "text", "timestamp"]
+    },
+    "ExpenseItem": {
+      "title": "Expense Item",
+      "description": "Branch operating expenses in AED or LKR",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "maxLength": 32 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 120 },
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "maxLength": 10 },
+        "branch": { "type": "string", "enum": ["Dubai", "Negombo"] },
+        "paymentMethod": { "type": "string", "maxLength": 60 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "date", "title", "category", "amount", "currency", "branch"]
+    },
+    "SettingDocument": {
+      "title": "Agency Settings",
+      "description": "Company profile and initialization metadata",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string", "maxLength": 200 },
+        "tagline": { "type": "string", "maxLength": 300 },
+        "email": { "type": "string", "maxLength": 254 },
+        "initialized": { "type": "boolean" }
       }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Registered staff and admin user profiles keyed by Firebase Auth UID"
+    },
+    "/userInvites/{inviteId}": {
+      "schema": { "$ref": "#/entities/UserInvite" },
+      "description": "Admin-provisioned user account invitations keyed by deterministic email ID"
+    },
+    "/tickets/{ticketId}": {
+      "schema": { "$ref": "#/entities/TicketFollowup" },
+      "description": "Air ticket follow-up records across Dubai and Negombo branches"
+    },
+    "/visas/{visaId}": {
+      "schema": { "$ref": "#/entities/VisaFollowup" },
+      "description": "Visa application follow-up records across Dubai and Negombo branches"
+    },
+    "/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/ActivityComment" },
+      "description": "Operational activity comments for tickets and visas"
+    },
+    "/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/ExpenseItem" },
+      "description": "Branch operational overhead expenses"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/SettingDocument" },
+      "description": "Agency company profile and system settings documents"
     }
   }
 }

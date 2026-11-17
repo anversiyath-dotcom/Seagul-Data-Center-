@@ -41,7 +41,7 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
   onDeleteTicket,
   onUpdateStatus,
   onUpdatePaymentStatus,
-  commentsCountMap
+  commentsCountMap,
 }) => {
   const [internalBranchFilter, setInternalBranchFilter] = useState<BranchFilter>('All');
   const selectedBranchFilter = controlledBranchFilter !== undefined ? controlledBranchFilter : internalBranchFilter;
@@ -403,7 +403,7 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
           </div>
           <div className="flex flex-col gap-1 items-start">
             {(() => {
-              const isDubai = item.branch === 'Dubai' || (!item.branch && (item.currency === 'AED' || item.departureLocation?.includes('DXB') || item.arrivalLocation?.includes('DXB')));
+              const isDubai = item.branch === 'Dubai';
               return (
                 <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 border ${
                   isDubai ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-blue-50 text-blue-800 border-blue-300'
@@ -982,18 +982,20 @@ export const TicketFollowupTable: React.FC<TicketFollowupTableProps> = ({
                       </p>
                       <p className="text-xs text-slate-400">
                         {selectedBranchFilter === 'Dubai'
-                          ? 'All existing data is kept under Sri Lanka Head Office. Ready to enter Dubai branch air tickets.'
+                          ? 'Records added under Dubai branch remain securely and separately stored in AED.'
                           : 'Try selecting different search or status filters.'}
                       </p>
                       {selectedBranchFilter === 'Dubai' && (
-                        <button
-                          type="button"
-                          onClick={onAddNewTicket}
-                          className="mt-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg inline-flex items-center space-x-1 shadow-xs cursor-pointer"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Enter First Dubai Ticket</span>
-                        </button>
+                        <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                          <button
+                            type="button"
+                            onClick={onAddNewTicket}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg inline-flex items-center space-x-1 shadow-xs cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ New Dubai Ticket</span>
+                          </button>
+                        </div>
                       )}
                     </div>
                   </td>

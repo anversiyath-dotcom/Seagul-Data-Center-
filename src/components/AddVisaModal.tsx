@@ -274,7 +274,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       if (editingVisa) {
-        setBranch(editingVisa.branch || defaultBranch || 'Dubai');
+        setBranch(editingVisa.branch || (defaultBranch === 'Dubai' ? 'Dubai' : 'Negombo'));
         setLastName(editingVisa.lastName || '');
         setFirstName(editingVisa.firstName || '');
         setPassportNo(editingVisa.passportNo || '');
@@ -926,7 +926,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
           purchasingPrice: costPax,
           sellingPrice: sellPax,
           paymentStatus: paymentStatus || 'Pending',
-          currency: currency || 'AED',
+          currency: currency || (branch === 'Dubai' ? 'AED' : 'LKR'),
           passportAttachment,
           passportFileName,
           visaAttachment,
@@ -947,7 +947,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         });
       } else {
         const newVisas: VisaFollowup[] = validApplicants.map((app, idx) => ({
-          id: `v-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
+          id: branch === 'Dubai' ? `v-dubai-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}` : `v-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
           submissionDate: todayStr,
           lastName: app.lastName.trim().toUpperCase(),
           firstName: app.firstName.trim().toUpperCase(),
@@ -968,7 +968,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
           purchasingPrice: costPax,
           sellingPrice: sellPax,
           paymentStatus: paymentStatus || 'Pending',
-          currency: currency || 'AED',
+          currency: currency || (branch === 'Dubai' ? 'AED' : 'LKR'),
           passportAttachment: app.passportAttachment || (idx === 0 ? passportAttachment : undefined),
           passportFileName: app.passportFileName || (idx === 0 ? passportFileName : undefined),
           visaAttachment: idx === 0 ? visaAttachment : undefined,
@@ -1025,7 +1025,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         purchasingPrice: !isNaN(numPurchasing as number) ? numPurchasing : undefined,
         sellingPrice: !isNaN(numSelling as number) ? numSelling : undefined,
         paymentStatus: paymentStatus || 'Pending',
-        currency: currency || 'AED',
+        currency: currency || (branch === 'Dubai' ? 'AED' : 'LKR'),
         passportAttachment,
         passportFileName,
         visaAttachment,
@@ -1038,7 +1038,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
       });
     } else {
       const newVisa: VisaFollowup = {
-        id: `v-${Date.now()}`,
+        id: branch === 'Dubai' ? `v-dubai-${Date.now()}` : `v-${Date.now()}`,
         submissionDate: todayStr,
         lastName: lastName.toUpperCase() || 'SURNAME',
         firstName: firstName.toUpperCase() || 'FIRSTNAME',
@@ -1059,7 +1059,7 @@ export const AddVisaModal: React.FC<AddVisaModalProps> = ({
         purchasingPrice: !isNaN(numPurchasing as number) ? numPurchasing : undefined,
         sellingPrice: !isNaN(numSelling as number) ? numSelling : undefined,
         paymentStatus: paymentStatus || 'Pending',
-        currency: currency || 'AED',
+        currency: currency || (branch === 'Dubai' ? 'AED' : 'LKR'),
         passportAttachment,
         passportFileName,
         visaAttachment,

@@ -1,7 +1,7 @@
 import React from 'react';
-import { Plane, FileText, LayoutDashboard, Plus, Search, ArrowRightLeft, LogOut, User, Building2, Calculator, MapPin, ChevronDown, UserCheck } from 'lucide-react';
+import { Plane, FileText, LayoutDashboard, Plus, Search, ArrowRightLeft, LogOut, User, Users, Building2, Calculator, MapPin, ChevronDown, UserCheck } from 'lucide-react';
 import { SeagullLogo } from './SeagullLogo';
-import { CompanyProfile, BranchFilter, BRANCH_CONFIG } from '../types';
+import { CompanyProfile, BranchFilter, BRANCH_CONFIG, UserAccount } from '../types';
 
 interface HeaderProps {
   activeTab: 'dashboard' | 'tickets' | 'visas' | 'accounting' | 'tracker';
@@ -15,6 +15,9 @@ interface HeaderProps {
   visaCount: number;
   onLogout?: () => void;
   onOpenCompanySettings?: () => void;
+  onOpenUserAccounts?: () => void;
+  currentUser?: UserAccount | null;
+  pendingUsersCount?: number;
   companyProfile?: CompanyProfile;
   selectedBranch: BranchFilter;
   setSelectedBranch: (branch: BranchFilter) => void;
@@ -36,6 +39,9 @@ export const Header: React.FC<HeaderProps> = ({
   visaCount,
   onLogout,
   onOpenCompanySettings,
+  onOpenUserAccounts,
+  currentUser,
+  pendingUsersCount = 0,
   companyProfile,
   selectedBranch,
   setSelectedBranch,
@@ -44,6 +50,9 @@ export const Header: React.FC<HeaderProps> = ({
   negomboVisaCount = 0,
   negomboTicketCount = 0,
 }) => {
+  const isBranchLocked = Boolean(
+    currentUser && currentUser.role !== 'Admin' && currentUser.branchAccess !== 'All'
+  );
   return (
     <header className="bg-slate-900 text-white shadow-md sticky top-0 z-30 border-b border-slate-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -141,50 +150,66 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Branch Switcher (Prominent!) */}
           <div className="flex items-center bg-slate-800/90 p-1 rounded-xl border border-slate-700/80 shadow-xs shrink-0">
-            <button
-              onClick={() => setSelectedBranch('All')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer ${
-                selectedBranch === 'All'
-                  ? 'bg-slate-700 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="View consolidated data across all branch offices"
-            >
-              <span>🏢</span>
-              <span className="hidden sm:inline">All Branches</span>
-              <span className="sm:hidden">All</span>
-            </button>
+            {(!isBranchLocked || currentUser?.branchAccess === 'All') && (
+              <button
+                onClick={() => setSelectedBranch('All')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer ${
+                  selectedBranch === 'All'
+                    ? 'bg-slate-700 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="View consolidated data across all branch offices"
+              >
+                <span>🏢</span>
+                <span className="hidden sm:inline">All Branches</span>
+                <span className="sm:hidden">All</span>
+                {ticketCount + visaCount > 0 && (
+                  <span className="bg-slate-800 text-slate-300 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                    {ticketCount + visaCount}
+                  </span>
+                )}
+              </button>
+            )}
 
-            <button
-              onClick={() => setSelectedBranch('Dubai')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
-                selectedBranch === 'Dubai'
-                  ? 'bg-emerald-600 text-white shadow ring-2 ring-emerald-400/50'
-                  : 'text-emerald-400 hover:text-emerald-200 hover:bg-emerald-950/40'
-              }`}
-              title="Switch to Dubai Branch (Coastal Building, Al Tawar Center)"
-            >
-              <span className="text-sm">🇦🇪</span>
-              <span>Dubai</span>
-              {dubaiVisaCount + dubaiTicketCount > 0 && (
-                <span className="bg-emerald-950/70 text-emerald-300 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-                  {dubaiVisaCount + dubaiTicketCount}
-                </span>
-              )}
-            </button>
+            {(!isBranchLocked || currentUser?.branchAccess === 'Dubai') && (
+              <button
+                onClick={() => setSelectedBranch('Dubai')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
+                  selectedBranch === 'Dubai'
+                    ? 'bg-emerald-600 text-white shadow ring-2 ring-emerald-400/50'
+                    : 'text-emerald-400 hover:text-emerald-200 hover:bg-emerald-950/40'
+                }`}
+                title="Switch to Dubai Branch (Coastal Building, Al Tawar Center)"
+              >
+                <span className="text-sm">🇦🇪</span>
+                <span>Dubai</span>
+                {dubaiVisaCount + dubaiTicketCount > 0 && (
+                  <span className="bg-emerald-950/70 text-emerald-300 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                    {dubaiVisaCount + dubaiTicketCount}
+                  </span>
+                )}
+              </button>
+            )}
 
-            <button
-              onClick={() => setSelectedBranch('Negombo')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
-                selectedBranch === 'Negombo'
-                  ? 'bg-blue-600 text-white shadow ring-2 ring-blue-400/50'
-                  : 'text-blue-400 hover:text-blue-200 hover:bg-blue-950/40'
-              }`}
-              title="Switch to Negombo Branch (Sri Lanka Office)"
-            >
-              <span className="text-sm">🇱🇰</span>
-              <span>Negombo</span>
-            </button>
+            {(!isBranchLocked || currentUser?.branchAccess === 'Negombo') && (
+              <button
+                onClick={() => setSelectedBranch('Negombo')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
+                  selectedBranch === 'Negombo'
+                    ? 'bg-blue-600 text-white shadow ring-2 ring-blue-400/50'
+                    : 'text-blue-400 hover:text-blue-200 hover:bg-blue-950/40'
+                }`}
+                title="Switch to Negombo Branch (Sri Lanka Office)"
+              >
+                <span className="text-sm">🇱🇰</span>
+                <span>Negombo</span>
+                {negomboVisaCount + negomboTicketCount > 0 && (
+                  <span className="bg-blue-950/70 text-blue-300 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                    {negomboVisaCount + negomboTicketCount}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
 
           {/* Global Search & Action Buttons */}
@@ -224,6 +249,24 @@ export const Header: React.FC<HeaderProps> = ({
                 <Plus className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">+ Visa</span>
               </button>
+
+              {onOpenUserAccounts && (
+                <button
+                  onClick={onOpenUserAccounts}
+                  className="relative flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-700 transition-colors shadow-sm cursor-pointer"
+                  title={currentUser?.role === 'Admin' ? 'Manage User Accounts & Create Staff Logins' : 'View My Account Profile'}
+                >
+                  <Users className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden md:inline">
+                    {currentUser?.role === 'Admin' ? 'Users' : (currentUser?.displayName?.split(' ')[0] || 'Account')}
+                  </span>
+                  {pendingUsersCount > 0 && currentUser?.role === 'Admin' && (
+                    <span className="bg-amber-500 text-slate-950 text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                      {pendingUsersCount}
+                    </span>
+                  )}
+                </button>
+              )}
 
               {onOpenCompanySettings && (
                 <button

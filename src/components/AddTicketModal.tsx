@@ -99,7 +99,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
 
   useEffect(() => {
     if (editingTicket) {
-      setBranch(editingTicket.branch || defaultBranch || 'Dubai');
+      setBranch(editingTicket.branch || (defaultBranch === 'Dubai' ? 'Dubai' : 'Negombo'));
       setTicketNumbersText(Array.isArray(editingTicket.tickets) ? editingTicket.tickets.join('\n') : '');
       setPnr(editingTicket.pnr || editingTicket.newBooking || '');
       setCustomer(editingTicket.customer || 'Seagull Global');
@@ -164,7 +164,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
         setGroupSize(editingTicket.groupSize || trvs.length);
       }
     } else {
-      const initialBranch = defaultBranch || 'Dubai';
+      const initialBranch = defaultBranch === 'Dubai' ? 'Dubai' : 'Negombo';
       setBranch(initialBranch);
       setTicketNumbersText('');
       setPnr('');
@@ -750,7 +750,7 @@ export const AddTicketModal: React.FC<AddTicketModalProps> = ({
       onUpdateTicket(updatedTicket);
     } else {
       const newTicket: TicketFollowup = {
-        id: `tkt-${Date.now()}`,
+        id: branch === 'Dubai' ? `tkt-dubai-${Date.now()}` : `tkt-${Date.now()}`,
         tickets: finalTicketsArray,
         newBooking: pnr || 'N/A',
         status: status,

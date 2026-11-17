@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { CompanyProfile, DEFAULT_COMPANY_PROFILE } from '../types';
-import { Building2, X, Save, Phone, Mail, MapPin, Trash2, CheckCircle2, RotateCcw, ShieldAlert, Image as ImageIcon } from 'lucide-react';
+import { CompanyProfile } from '../types';
+import { Building2, X, Save, Phone, Mail, MapPin, Trash2, CheckCircle2, ShieldAlert, Image as ImageIcon } from 'lucide-react';
 import { SeagullLogo } from './SeagullLogo';
 
 interface CompanySettingsModalProps {
@@ -10,7 +10,6 @@ interface CompanySettingsModalProps {
   onSaveProfile: (newProfile: CompanyProfile) => void;
   onClearAllData: () => void;
   onResetToDemoData: () => void;
-  onReassignAllToSriLanka?: () => void;
 }
 
 export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
@@ -20,7 +19,6 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
   onSaveProfile,
   onClearAllData,
   onResetToDemoData,
-  onReassignAllToSriLanka
 }) => {
   const [formData, setFormData] = useState<CompanyProfile>(profile);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -202,16 +200,6 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
               Clear all current entries if you want to start entering your company's actual client data from scratch.
             </p>
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              {onReassignAllToSriLanka && (
-                <button
-                  type="button"
-                  onClick={onReassignAllToSriLanka}
-                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  Assign All Records to Sri Lanka Branch (Reset Dubai to 0)
-                </button>
-              )}
               <button
                 type="button"
                 onClick={onClearAllData}

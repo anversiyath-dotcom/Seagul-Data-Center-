@@ -242,7 +242,7 @@ export const FinancialAccountingView: React.FC<FinancialAccountingViewProps> = (
         netProfit: profit,
         profitMargin: margin,
         paymentStatus: v.paymentStatus ? (isPaidPaymentStatus(v.paymentStatus) ? 'Paid' : isPartialPaymentStatus(v.paymentStatus) ? 'Partially Paid' : 'Pending') : 'Pending',
-        currency: v.currency || 'AED',
+        currency: v.currency || (v.branch === 'Dubai' ? 'AED' : 'LKR'),
         rawVisa: v
       });
     });

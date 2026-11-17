@@ -21,6 +21,7 @@ interface DashboardOverviewProps {
   onTrackPassenger?: (query: string) => void;
   onOpenTicketDetails?: (ticket: TicketFollowup) => void;
   onOpenVisaDetails?: (visa: VisaFollowup) => void;
+  onPopulateDubaiData?: () => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -34,7 +35,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onNavigateTab,
   onTrackPassenger,
   onOpenTicketDetails,
-  onOpenVisaDetails
+  onOpenVisaDetails,
+  onPopulateDubaiData,
 }) => {
   const [selectedExpiringDateFilter, setSelectedExpiringDateFilter] = useState<string>('ALL');
   const [copiedPassportId, setCopiedPassportId] = useState<string | null>(null);
@@ -431,6 +433,33 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </form>
         </div>
       </div>
+
+      {/* Dubai Branch Empty State Prompt */}
+      {selectedBranch === 'Dubai' && tickets.length === 0 && visas.length === 0 && (
+        <div className="bg-emerald-950/80 border-2 border-emerald-500/50 rounded-2xl p-5 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center space-x-3.5">
+            <span className="text-3xl">🇦🇪</span>
+            <div>
+              <h3 className="font-extrabold text-sm text-emerald-300 uppercase tracking-wide">
+                Dubai Branch Office (Coastal Building, Al Tawar Center)
+              </h3>
+              <p className="text-xs text-slate-300 mt-0.5">
+                No active records loaded for Dubai branch. Click below to instantly load UAE Golden Visas, Freelancer permits, Family visas, flight tickets, and operating expenses.
+              </p>
+            </div>
+          </div>
+          {onPopulateDubaiData && (
+            <button
+              type="button"
+              onClick={onPopulateDubaiData}
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md transition-all shrink-0 cursor-pointer flex items-center space-x-2"
+            >
+              <span>🇦🇪</span>
+              <span>Load Dubai Branch Datasets</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Financial Accounting & Profit Quick Banner */}
       <div 

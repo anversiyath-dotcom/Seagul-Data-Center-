@@ -1,8 +1,340 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Global Default-Deny Safety Net
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // --- Global Helpers ---
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email is string;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email.lower() == 'anversiyath@gmail.com';
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Admin'
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'Active'
+      );
+    }
+
+    function isActiveStaff() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'Active'
+      );
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserAccount(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'branchAccess', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'phone', 'jobTitle', 'role',
+          'branchAccess', 'status', 'photoURL', 'inviteId', 'createdAt', 'updatedAt', 'createdBy'
+        ])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.role in ['Admin', 'Manager', 'Staff']
+        && data.branchAccess in ['All', 'Dubai', 'Negombo']
+        && data.status in ['Active', 'Pending', 'Suspended']
+        && data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64
+        && data.updatedAt is string && data.updatedAt.size() > 0 && data.updatedAt.size() <= 64
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 40))
+        && (!('jobTitle' in data) || (data.jobTitle is string && data.jobTitle.size() <= 80))
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000))
+        && (!('inviteId' in data) || (data.inviteId is string && data.inviteId.size() <= 128))
+        && (!('createdBy' in data) || (data.createdBy is string && data.createdBy.size() <= 128));
+    }
+
+    function isValidUserInvite(data) {
+      return data.keys().hasAll(['id', 'email', 'displayName', 'role', 'branchAccess', 'status', 'createdAt', 'updatedAt', 'createdBy'])
+        && data.keys().hasOnly([
+          'id', 'email', 'displayName', 'phone', 'jobTitle',
+          'role', 'branchAccess', 'status', 'createdAt', 'updatedAt', 'createdBy'
+        ])
+        && isValidId(data.id)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.role in ['Admin', 'Manager', 'Staff']
+        && data.branchAccess in ['All', 'Dubai', 'Negombo']
+        && data.status in ['Pending', 'Claimed']
+        && data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64
+        && data.updatedAt is string && data.updatedAt.size() > 0 && data.updatedAt.size() <= 64
+        && data.createdBy is string && data.createdBy.size() > 0 && data.createdBy.size() <= 128
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 40))
+        && (!('jobTitle' in data) || (data.jobTitle is string && data.jobTitle.size() <= 80));
+    }
+
+    function isValidTicket(data) {
+      return data.keys().hasAll(['id', 'status', 'customer'])
+        && data.keys().hasOnly([
+          'id', 'tickets', 'newBooking', 'status', 'reissueCategory', 'comment', 'quote', 'outcome',
+          'customer', 'customerType', 'supplier', 'requestDate', 'pnr', 'totalRefundable',
+          'refundAmount', 'serviceFee', 'currency', 'timeline', 'refundReason', 'airline',
+          'flyDate', 'departureLocation', 'arrivalLocation', 'returnDate', 'tripType',
+          'flightNo', 'departureTime', 'arrivalTime', 'returnFlightNo', 'returnAirline',
+          'returnDepartureTime', 'returnArrivalTime', 'cabinClass', 'baggageAllowance',
+          'specialRequests', 'travelers', 'itinerary', 'createdAt', 'ticketAttachment',
+          'ticketFileName', 'isGroupBooking', 'groupName', 'groupSize', 'pricingMode',
+          'costPrice', 'sellingPrice', 'profit', 'profitMargin', 'costPerPax',
+          'sellingPerPax', 'profitPerPax', 'paymentStatus', 'hideCustomer',
+          'hideSupplier', 'hideRefundable', 'branch'
+        ])
+        && isValidId(data.id)
+        && data.status is string && data.status.size() > 0 && data.status.size() <= 60
+        && data.customer is string && data.customer.size() <= 200
+        && (!('branch' in data) || data.branch in ['Dubai', 'Negombo'])
+        && (!('currency' in data) || (data.currency is string && data.currency.size() <= 16))
+        && (!('travelers' in data) || (data.travelers is list && data.travelers.size() <= 200))
+        && (!('itinerary' in data) || (data.itinerary is list && data.itinerary.size() <= 50))
+        && (!('timeline' in data) || (data.timeline is list && data.timeline.size() <= 50))
+        && (!('tickets' in data) || (data.tickets is list && data.tickets.size() <= 200));
+    }
+
+    function isValidVisa(data) {
+      return data.keys().hasAll(['id', 'status', 'passportNo'])
+        && data.keys().hasOnly([
+          'id', 'submissionDate', 'lastName', 'firstName', 'passportNo', 'passportExpiry',
+          'nationality', 'destinationCountry', 'visaCategory', 'entryDate', 'expiryDate',
+          'status', 'customer', 'customerType', 'remarks', 'supplier', 'purchasingPrice',
+          'sellingPrice', 'paymentStatus', 'currency', 'photoAttachment', 'photoFileName',
+          'passportAttachment', 'passportFileName', 'visaAttachment', 'visaFileName',
+          'unifiedNumber', 'dob', 'icpFileNo', 'lastCheckedAt', 'autoCheckEnabled',
+          'createdAt', 'isGroup', 'groupName', 'groupId', 'groupSize',
+          'groupMemberIndex', 'groupMembers', 'pricingMode', 'costPerPax', 'sellingPerPax', 'branch'
+        ])
+        && isValidId(data.id)
+        && data.status is string && data.status.size() > 0 && data.status.size() <= 60
+        && data.passportNo is string && data.passportNo.size() <= 60
+        && (!('branch' in data) || data.branch in ['Dubai', 'Negombo'])
+        && (!('currency' in data) || (data.currency is string && data.currency.size() <= 16))
+        && (!('groupMembers' in data) || (data.groupMembers is list && data.groupMembers.size() <= 200));
+    }
+
+    function isValidComment(data) {
+      return data.keys().hasAll(['id', 'targetType', 'targetId', 'author', 'text', 'timestamp'])
+        && data.keys().hasOnly(['id', 'targetType', 'targetId', 'author', 'text', 'timestamp'])
+        && isValidId(data.id)
+        && data.targetType in ['ticket', 'visa']
+        && isValidId(data.targetId)
+        && data.author is string && data.author.size() >= 1 && data.author.size() <= 120
+        && data.text is string && data.text.size() >= 1 && data.text.size() <= 4000
+        && data.timestamp is string && data.timestamp.size() > 0 && data.timestamp.size() <= 64;
+    }
+
+    function isValidExpense(data) {
+      return data.keys().hasAll(['id', 'date', 'title', 'category', 'amount', 'currency', 'branch'])
+        && data.keys().hasOnly([
+          'id', 'date', 'title', 'category', 'amount', 'currency',
+          'branch', 'paymentMethod', 'vendor', 'receiptNo', 'notes', 'createdAt', 'status'
+        ])
+        && isValidId(data.id)
+        && data.date is string && data.date.size() > 0 && data.date.size() <= 32
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 200
+        && data.category is string && data.category.size() > 0 && data.category.size() <= 120
+        && data.amount is number
+        && data.currency is string && data.currency.size() > 0 && data.currency.size() <= 16
+        && data.branch in ['Dubai', 'Negombo']
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000));
+    }
+
+    function isValidSetting(data) {
+      return data.keys().hasOnly([
+        'companyName', 'tagline', 'negomboAddress', 'negomboPhone',
+        'dubaiAddress', 'dubaiPhone', 'email', 'initialized', 'cleared', 'timestamp'
+      ])
+        && (!('companyName' in data) || (data.companyName is string && data.companyName.size() <= 200))
+        && (!('tagline' in data) || (data.tagline is string && data.tagline.size() <= 300))
+        && (!('email' in data) || (data.email is string && data.email.size() <= 254));
+    }
+
+    // --- Users Collection (PII Restricted to Owner or Admin) ---
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isVerifiedUser() && (
+        resource.data.uid == request.auth.uid ||
+        request.auth.token.email.lower() == 'anversiyath@gmail.com'
+      );
+
+      allow create: if isValidId(userId)
+        && isVerifiedUser()
+        && isOwner(userId)
+        && isValidUserAccount(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().email.lower() == request.auth.token.email.lower()
+        && (
+          // Bootstrapped admin account
+          (isBootstrappedAdmin() && incoming().role == 'Admin' && incoming().status == 'Active' && incoming().branchAccess == 'All')
+          ||
+          // Pre-invited account atomically claimed
+          (
+            'inviteId' in incoming()
+            && isValidId(incoming().inviteId)
+            && exists(/databases/$(database)/documents/userInvites/$(incoming().inviteId))
+            && get(/databases/$(database)/documents/userInvites/$(incoming().inviteId)).data.email.lower() == request.auth.token.email.lower()
+            && get(/databases/$(database)/documents/userInvites/$(incoming().inviteId)).data.status == 'Pending'
+            && get(/databases/$(database)/documents/userInvites/$(incoming().inviteId)).data.role == incoming().role
+            && get(/databases/$(database)/documents/userInvites/$(incoming().inviteId)).data.branchAccess == incoming().branchAccess
+            && incoming().status == 'Active'
+            && getAfter(/databases/$(database)/documents/userInvites/$(incoming().inviteId)).data.status == 'Claimed'
+          )
+          ||
+          // Self-registration without invite defaults strictly to Pending Staff
+          (incoming().role == 'Staff' && incoming().status == 'Pending')
+        );
+
+      allow update: if isValidId(userId)
+        && isVerifiedUser()
+        && isValidUserAccount(incoming())
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && (
+          // Admins can update roles, branch access, status, and profile details
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'phone', 'jobTitle', 'role', 'branchAccess', 'status', 'photoURL', 'updatedAt'
+            ])
+          )
+          ||
+          // Users can only update their own contact details (never role, branchAccess, or status)
+          (
+            isOwner(userId) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'phone', 'jobTitle', 'photoURL', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(userId) && isAdmin() && userId != request.auth.uid;
+    }
+
+    // --- User Invites Collection (Pre-created Accounts by Admin) ---
+    match /userInvites/{inviteId} {
+      allow get: if isValidId(inviteId) && isVerifiedUser() && (
+        isAdmin() ||
+        resource == null ||
+        existing().email.lower() == request.auth.token.email.lower()
+      );
+      allow list: if isVerifiedUser() && (
+        request.auth.token.email.lower() == 'anversiyath@gmail.com' ||
+        resource.data.email.lower() == request.auth.token.email.lower()
+      );
+
+      allow create: if isValidId(inviteId)
+        && isAdmin()
+        && isValidUserInvite(incoming())
+        && incoming().id == inviteId
+        && incoming().status == 'Pending';
+
+      allow update: if isValidId(inviteId)
+        && isVerifiedUser()
+        && isValidUserInvite(incoming())
+        && incoming().id == existing().id
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin()
+          ||
+          (
+            existing().email.lower() == request.auth.token.email.lower() &&
+            existing().status == 'Pending' &&
+            incoming().status == 'Claimed' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(inviteId) && isAdmin();
+    }
+
+    // --- Operational Collections (Active Staff & Admin) ---
+    match /tickets/{ticketId} {
+      allow get: if isValidId(ticketId) && isActiveStaff();
+      allow list: if isVerifiedUser() && resource.data.id is string && resource.data.id.size() > 0;
+      allow create: if isValidId(ticketId) && isActiveStaff() && isValidTicket(incoming()) && incoming().id == ticketId;
+      allow update: if isValidId(ticketId)
+        && isActiveStaff()
+        && isValidTicket(incoming())
+        && incoming().id == existing().id
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paymentStatus', 'timeline', 'outcome', 'quote', 'comment'])
+          || !incoming().diff(existing()).affectedKeys().hasAny(['id'])
+        );
+      allow delete: if isValidId(ticketId) && isActiveStaff();
+    }
+
+    match /visas/{visaId} {
+      allow get: if isValidId(visaId) && isActiveStaff();
+      allow list: if isVerifiedUser() && resource.data.id is string && resource.data.id.size() > 0;
+      allow create: if isValidId(visaId) && isActiveStaff() && isValidVisa(incoming()) && incoming().id == visaId;
+      allow update: if isValidId(visaId)
+        && isActiveStaff()
+        && isValidVisa(incoming())
+        && incoming().id == existing().id
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'status', 'paymentStatus', 'icpFileNo', 'lastCheckedAt', 'expiryDate', 'entryDate'
+          ])
+          || !incoming().diff(existing()).affectedKeys().hasAny(['id'])
+        );
+      allow delete: if isValidId(visaId) && isActiveStaff();
+    }
+
+    match /comments/{commentId} {
+      allow get: if isValidId(commentId) && isActiveStaff();
+      allow list: if isVerifiedUser() && resource.data.id is string && resource.data.id.size() > 0;
+      allow create: if isValidId(commentId) && isActiveStaff() && isValidComment(incoming()) && incoming().id == commentId;
+      allow update: if isValidId(commentId) && isAdmin() && isValidComment(incoming()) && incoming().id == existing().id;
+      allow delete: if isValidId(commentId) && isAdmin();
+    }
+
+    match /expenses/{expenseId} {
+      allow get: if isValidId(expenseId) && isActiveStaff();
+      allow list: if isVerifiedUser() && resource.data.id is string && resource.data.id.size() > 0;
+      allow create: if isValidId(expenseId) && isActiveStaff() && isValidExpense(incoming()) && incoming().id == expenseId;
+      allow update: if isValidId(expenseId) && isActiveStaff() && isValidExpense(incoming()) && incoming().id == existing().id;
+      allow delete: if isValidId(expenseId) && isActiveStaff();
+    }
+
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && (isActiveStaff() || isVerifiedUser());
+      allow create, update: if isValidId(settingId) && isActiveStaff() && isValidSetting(incoming());
+      allow delete: if false;
+    }
+
+    match /test/connection {
+      allow get: if isSignedIn();
     }
   }
 }
